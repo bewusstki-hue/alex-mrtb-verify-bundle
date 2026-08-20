@@ -1,0 +1,29 @@
+{
+  "name": "verify-bundle",
+  "private": true,
+  "version": "1.0.0",
+  "license": "Apache-2.0",
+  "type": "module",
+  "main": "dist/verify.js",
+  "files": [
+    "dist/",
+    "README.md",
+    "sample-bundle.json",
+    "invalid-tampered-bundle.json",
+    "test/",
+    "bundle-*.json"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "test": "npm run build --silent && node --test test/*.test.mjs",
+    "verify": "npm run build --silent && node dist/verify.js",
+    "prepack": "npm run build"
+  },
+  "devDependencies": {
+    "@types/node": "^22.14.0",
+    "typescript": "~5.8.2"
+  }
+}

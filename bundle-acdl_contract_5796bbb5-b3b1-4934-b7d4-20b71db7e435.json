@@ -1,0 +1,24 @@
+{
+  "bundle_id": "bundle_acdl_contract_5796bbb5-b3b1-4934-b7d4-20b71db7e435",
+  "capability": "memory.provenance.attached@1.0",
+  "run_id": "run_1787102015001",
+  "claim_ladder": "L2",
+  "executed_at": "2026-08-19T01:13:35.169Z",
+  "trace_events": [
+    "contract_created:acdl_contract_5796bbb5-b3b1-4934-b7d4-20b71db7e435",
+    "execution_started:provenance-check",
+    "memory_write:{\"entry_id\":\"entry_run_1787102015001\",\"actual_agent_id\":\"alex\",\"provenance_agent_id\":\"alex\",\"actual_source_hash\":\"a9eb35e1c1a0aca497b271fc84e0ba1b99848b2925ded3f15dcd33c7f1058b71\",\"provenance_source_hash\":\"a9eb35e1c1a0aca497b271fc84e0ba1b99848b2925ded3f15dcd33c7f1058b71\"}",
+    "execution_checked:required-fields-present",
+    "execution_result:verified"
+  ],
+  "trace_hash_chain": [
+    "37620883dcfd5a50a3ba87c29eba6f9122d1ed4639915640b00127400588bc10",
+    "0575cf4d88d80ff93d52747175d70150dc84a27e0a83dd7574d522bcf02079c7",
+    "6bbfca11dbd167c5602caa3bba5ba58c9d0259d8412f6e5b58a0766035e377f3",
+    "0f1c07733fbc14758aa2a43271fd620d21c8717f5931735176f32cfdd0e500e1",
+    "88a7e0b8afe76ae97bff4791ea530f11875a29d86aae522633efda4c72ef4738"
+  ],
+  "outcome": "verified",
+  "signature": "QitLIHP0T4e/Irq4zgZpePpMynK5PDjGLnjfEPxZX+GQRO2AAe1i6jBkNaDojzmbzi1a5gHCck1GoRksvCXYAQ==",
+  "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEA9CJKNLAPUTbN4EGVusPipz8X3yHOcdUNFBUlKxHrpe8=\n-----END PUBLIC KEY-----\n"
+}

@@ -1,0 +1,24 @@
+{
+  "bundle_id": "manual_sample_bundle",
+  "capability": "memory.provenance.attached@1.0",
+  "run_id": "manual_run",
+  "claim_ladder": "L2",
+  "executed_at": "2026-08-19T01:03:15.068Z",
+  "trace_events": [
+    "contract_created:manual_sample_bundle",
+    "execution_started:provenance-check",
+    "memory_write:{\"entry_id\":\"entry_manual_run\",\"actual_agent_id\":\"mallory\",\"provenance_agent_id\":\"alex\",\"actual_source_hash\":\"e6b5b04c479d3ee8b0560aecacb420c2c9535cbb79df1057b23c0f874ca0a34f\",\"provenance_source_hash\":\"e6b5b04c479d3ee8b0560aecacb420c2c9535cbb79df1057b23c0f874ca0a34f\"}",
+    "execution_checked:required-fields-present",
+    "execution_result:verified"
+  ],
+  "trace_hash_chain": [
+    "134464fe3a703af0d460dc64e282bfc21fbae3b4e2713c31cb5b678a6e71630e",
+    "2d81fff434a91f5241b658d121df340bc5b7bd135e916d1616de2aab9d8f20d0",
+    "6d6a53935d4586550386301437aa98209cda20b3078cd04251492be581ef4988",
+    "90e7391116870b1514e5e122a9b0377c2bd915af90c0d40fd8de907019756733",
+    "fa6911f99f15a29626f960b6c75c761fa9a10ab5063f59dceeca25845c7f8c20"
+  ],
+  "outcome": "verified",
+  "signature": "5eIzX9Kxv6506Tbe+sp6poQ5dr424Lkle63Ed7U7DHhu+KLq6LVPXtUfgSQVfVz75JeNbMfaeeS520cAlNepAg==",
+  "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEA9CJKNLAPUTbN4EGVusPipz8X3yHOcdUNFBUlKxHrpe8=\n-----END PUBLIC KEY-----\n"
+}
