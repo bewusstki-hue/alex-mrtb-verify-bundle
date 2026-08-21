@@ -23,6 +23,18 @@ const TENANT_ISOLATION_CAPABILITY = "memory.tenant.isolation@1.0";
 const WRITE_INTEGRITY_CAPABILITY = "memory.write.integrity@1.0";
 const TAMPER_EVIDENT_CAPABILITY = "memory.audit.tamper_evident@1.0";
 const RECOVERY_VERIFIED_CAPABILITY = "memory.recovery.verified@1.0";
+
+const KNOWN_CAPABILITIES: readonly string[] = [
+  PROVENANCE_CAPABILITY,
+  DELETE_ENFORCED_CAPABILITY,
+  TENANT_ISOLATION_CAPABILITY,
+  WRITE_INTEGRITY_CAPABILITY,
+  TAMPER_EVIDENT_CAPABILITY,
+  RECOVERY_VERIFIED_CAPABILITY,
+];
+
+const CLAIM_LADDER_VALUES: readonly string[] = ["L0", "L1", "L2", "L3", "L4"];
+const OUTCOME_VALUES: readonly string[] = ["verified", "failed", "inconclusive"];
 const MEMORY_WRITE_EVENT_PREFIX = "memory_write:";
 const MEMORY_STATE_READ_EVENT_PREFIX = "memory_state_read:";
 const TENANT_ACCESS_PROBE_EVENT_PREFIX = "tenant_access_probe:";
@@ -237,7 +249,42 @@ function deriveOutcomeFromTrace(capability: string, events: string[]): "verified
   return "inconclusive";
 }
 
-export function verifyBundleObject(bundle: EvidenceBundle): { ok: boolean; reason?: string } {
+/**
+ * Runtime shape check. `EvidenceBundle` was previously only a compile-time type -- a bundle
+ * from an untrusted source (malformed JSON, wrong field types, an invalid claim_ladder/outcome
+ * value) reached `crypto.verify`/`JSON.stringify` unchecked and either threw an uncaught
+ * exception or produced a misleading result instead of a clean FAILED verdict.
+ */
+function isEvidenceBundleShape(value: unknown): value is EvidenceBundle {
+  if (!value || typeof value !== "object") return false;
+  const b = value as Record<string, unknown>;
+  return (
+    typeof b.bundle_id === "string" && b.bundle_id.length > 0 &&
+    typeof b.capability === "string" && b.capability.length > 0 &&
+    typeof b.run_id === "string" && b.run_id.length > 0 &&
+    typeof b.claim_ladder === "string" && CLAIM_LADDER_VALUES.includes(b.claim_ladder) &&
+    typeof b.executed_at === "string" && !Number.isNaN(Date.parse(b.executed_at)) &&
+    Array.isArray(b.trace_events) && b.trace_events.every((e) => typeof e === "string") &&
+    Array.isArray(b.trace_hash_chain) && b.trace_hash_chain.every((h) => typeof h === "string") &&
+    typeof b.outcome === "string" && OUTCOME_VALUES.includes(b.outcome) &&
+    typeof b.signature === "string" && b.signature.length > 0 &&
+    typeof b.public_key === "string" && b.public_key.length > 0
+  );
+}
+
+export function verifyBundleObject(bundleInput: unknown): { ok: boolean; reason?: string } {
+  if (!isEvidenceBundleShape(bundleInput)) {
+    return { ok: false, reason: "malformed_bundle" };
+  }
+  const bundle = bundleInput;
+
+  // Capability muss aus der bekannten, geprueften Liste stammen. Ohne diesen Schritt wuerde
+  // ein selbstsignierter Bundle mit frei erfundenem capability-Namen + outcome:"verified" den
+  // Trace-Abgleich unten komplett umgehen und direkt als VERIFIED durchgehen.
+  if (!KNOWN_CAPABILITIES.includes(bundle.capability)) {
+    return { ok: false, reason: `unknown_capability:${bundle.capability}` };
+  }
+
   const { signature, public_key, ...payload } = bundle;
 
   const isValidSignature = verify(
@@ -257,21 +304,12 @@ export function verifyBundleObject(bundle: EvidenceBundle): { ok: boolean; reaso
     return { ok: false, reason: "hash_chain_mismatch" };
   }
 
-  if (
-    bundle.capability === PROVENANCE_CAPABILITY ||
-    bundle.capability === DELETE_ENFORCED_CAPABILITY ||
-    bundle.capability === TENANT_ISOLATION_CAPABILITY ||
-    bundle.capability === WRITE_INTEGRITY_CAPABILITY ||
-    bundle.capability === TAMPER_EVIDENT_CAPABILITY ||
-    bundle.capability === RECOVERY_VERIFIED_CAPABILITY
-  ) {
-    const derivedOutcome = deriveOutcomeFromTrace(bundle.capability, bundle.trace_events);
-    if (bundle.outcome !== derivedOutcome) {
-      return {
-        ok: false,
-        reason: `trace_outcome_mismatch:declared=${bundle.outcome}:derived=${derivedOutcome}`,
-      };
-    }
+  const derivedOutcome = deriveOutcomeFromTrace(bundle.capability, bundle.trace_events);
+  if (bundle.outcome !== derivedOutcome) {
+    return {
+      ok: false,
+      reason: `trace_outcome_mismatch:declared=${bundle.outcome}:derived=${derivedOutcome}`,
+    };
   }
 
   if (bundle.outcome !== "verified") {
@@ -288,13 +326,21 @@ function main() {
     process.exit(1);
   }
 
-  const bundle = JSON.parse(readFileSync(bundlePath, "utf-8")) as EvidenceBundle;
-  const result = verifyBundleObject(bundle);
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(readFileSync(bundlePath, "utf-8"));
+  } catch (err) {
+    console.error(`❌ Bundle verification failed: malformed_json (${(err as Error).message})`);
+    process.exit(2);
+  }
+
+  const result = verifyBundleObject(parsed);
   if (!result.ok) {
     console.error(`❌ Bundle verification failed: ${result.reason}`);
     process.exit(2);
   }
 
+  const bundle = parsed as EvidenceBundle;
   console.log(`✅ Bundle ${bundle.bundle_id} verified. Capability=${bundle.capability}, Claim-Ladder=${bundle.claim_ladder}`);
 }
 
