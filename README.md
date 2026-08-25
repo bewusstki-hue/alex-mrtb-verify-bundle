@@ -49,6 +49,40 @@ Supported capability traces:
   ran under a specific frozen work contract, with which validation result, approved by whom, and
   with which final outcome)
 
+## Exact computation rule (hash chain + signature payload)
+
+Written out explicitly so this is reproducible without reading the TypeScript source:
+
+**Hash chain.** For `trace_events = [e0, e1, ..., en]`:
+
+```
+prev = "genesis"
+for each event e in trace_events (in order):
+    hash = sha256(prev + e)     # plain UTF-8 string concatenation, no separator
+    append hash to trace_hash_chain
+    prev = hash
+```
+
+Each `trace_hash_chain[i]` is the hex-encoded SHA-256 digest. This is a linear hash chain (each
+link depends on all prior events), not a Merkle tree.
+
+**Signature payload.** The signed payload is the bundle object *minus* `signature` and
+`public_key`, serialized with `JSON.stringify()` in exactly this key order:
+
+```
+{ bundle_id, capability, run_id, claim_ladder, executed_at, trace_events, trace_hash_chain, outcome }
+```
+
+`signature` is the Ed25519 signature (Node `crypto.sign(null, Buffer.from(JSON.stringify(payload)), privateKey)`)
+of that exact byte sequence, base64-encoded. `public_key` and `signature` are appended to the
+bundle only after signing -- they are never part of what gets signed. Verification re-derives the
+same payload object from the bundle (destructuring out `signature`/`public_key`), re-stringifies
+it, and calls `crypto.verify()` against the embedded `public_key`.
+
+This means: JSON key order matters for signature verification (JavaScript's `JSON.stringify`
+preserves insertion order for string keys). A verifier in another language must reconstruct the
+exact same key order, not just the same key/value pairs.
+
 ## Deliberate limits
 
 This verifier proves formal integrity and consistency of the supplied bundle. It does not prove that
