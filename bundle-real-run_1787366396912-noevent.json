@@ -1,0 +1,22 @@
+{
+  "bundle_id": "bundle_real_run_1787366396912",
+  "capability": "memory.provenance.attached@1.0",
+  "run_id": "run_1787366396912",
+  "claim_ladder": "L2",
+  "executed_at": "2026-08-22T07:53:21.392Z",
+  "trace_events": [
+    "contract_created:run_1787366396912",
+    "execution_started:alex-mrtb-proof-1787365932469",
+    "execution_checked:no-memory-write-event-present",
+    "execution_result:see-derived-outcome"
+  ],
+  "trace_hash_chain": [
+    "276e06ba9ad7781bf267f6468a2f5efe8cd23736964493ec1f75855e531d6fc7",
+    "70a7d2eaca1ba7cccb83f4a9b003918ac86bd38b9395ccc6f016b35a53a9b34e",
+    "a20a7dd6c480672c37e5f226fc62765afcb80a5209d45599780970c6b1108995",
+    "916eed2bd07d567c2586fea8a41c09ba49f67bf0bb7d38a3ce4c0dc928667bdd"
+  ],
+  "outcome": "inconclusive",
+  "signature": "OCqYVTybqP219b9NJi7rqL/+eIsWYvCJu5742Mxn2glWA7USH9GyrKeq4LqVVasRNKAIK/7NTe9HAtv37ph4CQ==",
+  "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEA2+hLOT1xT05OtyHn8wW22eRO3ZeSDsnSAc4TeMoqUVQ=\n-----END PUBLIC KEY-----\n"
+}

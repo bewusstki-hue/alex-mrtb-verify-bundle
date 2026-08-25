@@ -1,0 +1,26 @@
+{
+  "bundle_id": "devtask-execution-dt-1787662064400-sjiw-1-1787662156525",
+  "capability": "devtask.execution@1.0",
+  "run_id": "dt-1787662064400-sjiw:1",
+  "claim_ladder": "L2",
+  "executed_at": "2026-08-25T12:49:16.527Z",
+  "trace_events": [
+    "devtask_contract_bound:{\"task_id\":\"dt-1787662064400-sjiw\",\"attempt_number\":1,\"contract_hash\":\"aa0d959ae3db1a39314010d0528b9752432e53889173ef38859ef4d267da199d\",\"contract_schema_version\":\"work-contract@1.0\",\"risk_class\":\"R1\"}",
+    "devtask_attempt_started:{\"task_id\":\"dt-1787662064400-sjiw\",\"attempt_number\":1,\"started_at\":\"2026-08-25T12:47:58.483Z\"}",
+    "devtask_execution_context:{\"task_id\":\"dt-1787662064400-sjiw\",\"attempt_number\":1,\"execution_reference\":\"dev_task_attempts:43\",\"sandbox_reference\":null}",
+    "devtask_validation:{\"task_id\":\"dt-1787662064400-sjiw\",\"attempt_number\":1,\"validation_status\":\"passed\",\"validation_reference\":\"dev_tasks.validation_result\"}",
+    "devtask_human_approval:{\"task_id\":\"dt-1787662064400-sjiw\",\"attempt_number\":1,\"actor_id\":\"1132615846\",\"approved_at\":\"2026-08-25 12:49:14\",\"approval_reference\":\"dev_tasks.approved_by\"}",
+    "devtask_outcome:{\"task_id\":\"dt-1787662064400-sjiw\",\"attempt_number\":1,\"outcome\":\"COMPLETED\",\"completed_at\":\"2026-08-25 12:49:16\",\"reference\":\"dev_tasks.state\"}"
+  ],
+  "trace_hash_chain": [
+    "af29af485740eff24f4081fb0a925fb0bf2f1df1041dbaac167cf22ab446bb4a",
+    "8d82c9a86580bd7dfe0e60c9964d91225ae7d42ae3ef82b59a426aebc90dd37f",
+    "97df4e0f885cdee7b816abf0c07e08e28dc223e565716b393177b4812edb46b7",
+    "104e67588bfdc582a26e130b80064a3e769ef29e7af44dcc2d642fd5efb5747c",
+    "88c39062e5c7316770e1338bf66ddc8a58ff60b10cde23b3d34825cad1ecd953",
+    "3b7eb3ef80a120272b46a9f71264d0dad2ae0d6693e990e69375fc58e1e6453a"
+  ],
+  "outcome": "verified",
+  "signature": "yiGFDVgfbYQXR0/3sxDlhhYfwwvfnH5n87D58jaZiPMWs/ktS5cJhMOmntSP2G0tFLjrvGSpoWllZoOYnFJdCQ==",
+  "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEAdtZgpRyft6K5dpmrGGqXgaf/nyz0fi03KjbYD2jQ1jU=\n-----END PUBLIC KEY-----\n"
+}

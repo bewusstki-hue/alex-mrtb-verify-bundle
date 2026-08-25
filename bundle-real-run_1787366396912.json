@@ -1,0 +1,24 @@
+{
+  "bundle_id": "bundle_real_run_1787366396912",
+  "capability": "memory.provenance.attached@1.0",
+  "run_id": "run_1787366396912",
+  "claim_ladder": "L2",
+  "executed_at": "2026-08-22T07:53:11.535Z",
+  "trace_events": [
+    "contract_created:run_1787366396912",
+    "execution_started:alex-mrtb-proof-1787365932469",
+    "memory_write:{\"entry_id\":\"run_1787366396912\",\"actual_agent_id\":\"alex-mrtb-proof-1787365932469\",\"provenance_agent_id\":\"alex-mrtb-proof-1787365932469\",\"actual_source_hash\":\"b0e99177cfd9e6ccfac346352ea10527e6b19b2964bd27945e3710ad2c58e04b\",\"provenance_source_hash\":\"b0e99177cfd9e6ccfac346352ea10527e6b19b2964bd27945e3710ad2c58e04b\"}",
+    "execution_checked:required-fields-present",
+    "execution_result:see-derived-outcome"
+  ],
+  "trace_hash_chain": [
+    "276e06ba9ad7781bf267f6468a2f5efe8cd23736964493ec1f75855e531d6fc7",
+    "70a7d2eaca1ba7cccb83f4a9b003918ac86bd38b9395ccc6f016b35a53a9b34e",
+    "ae72ca9689503bd615bb81cc891ae8d58f6f5188e83c258be13162187b157f01",
+    "44bf62a084eea3b947680f1a00baca6213b089f6e5006c8094b59be4f031159b",
+    "df51d1dd8df16f391b0e3a1cea047eb47a30f3ebde16f03f93f9b21fe3016a5c"
+  ],
+  "outcome": "verified",
+  "signature": "0ArwCCiA76dQLkS4/NycKu4H0pLvJDVh+wF3PLP2Jg555slJWp2XbwBJVFOFEhuBmQGRVCOcI1v25ypEi7fiBg==",
+  "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEA7Rl2f5EHDJw7d8JKN+bBN2cKvXv1SWEt2mPK1EuanrI=\n-----END PUBLIC KEY-----\n"
+}

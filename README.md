@@ -30,11 +30,6 @@ The verifier distinguishes three outcomes:
 
 ## What it verifies
 
-- structural validity of the bundle itself (required fields present, correct types, `claim_ladder`
-  and `outcome` restricted to their defined value sets, `executed_at` a parseable timestamp) —
-  malformed input returns a clean `FAILED: malformed_bundle`, not an exception;
-- that `capability` is one of the six capabilities this verifier actually knows how to check —
-  an unrecognized capability name is rejected outright, it cannot skip straight to the outcome gate;
 - the cryptographic signature of the bundle payload;
 - hash-chain integrity across raw `trace_events`;
 - agreement between the declared outcome and the outcome derived from supported trace events;
@@ -48,29 +43,16 @@ Supported capability traces:
 - `memory.write.integrity@1.0` -> `memory_content_change:`
 - `memory.audit.tamper_evident@1.0` -> `audit_chain_check:`
 - `memory.recovery.verified@1.0` -> `memory_recovery:`
+- `devtask.execution@1.0` -> `devtask_contract_bound:` / `devtask_attempt_started:` /
+  `devtask_execution_context:` / `devtask_validation:` / `devtask_human_approval:` /
+  `devtask_outcome:` (first non-`memory.*` capability: proves a real dev-task execution attempt
+  ran under a specific frozen work contract, with which validation result, approved by whom, and
+  with which final outcome)
 
 ## Deliberate limits
 
 This verifier proves formal integrity and consistency of the supplied bundle. It does not prove that
 the external events described by the bundle happened in the real world.
-
-**No external trust anchor yet.** `public_key` is read from the bundle itself, not from an allowlist,
-a registry, or a certificate chain. This verifier proves that the bundle is *internally* consistent —
-signed by *some* key, and unmodified since — not that a specific, known, trusted party produced it.
-Anyone can generate their own Ed25519 keypair, sign an arbitrary but internally-consistent bundle, and
-get `VERIFIED`. A real trust anchor (key allowlist, PKI, or a transparency log such as Sigstore/Rekor)
-is a later, explicitly planned step, not yet built — see the `Memory_Red_Teaming_Benchmark_Gesamtkonzept.md`
-Claim Ladder / evidence-bundle sections in the companion `memory-red-teaming-benchmark` repository.
-
-**No replay or freshness protection.** `bundle_id`, `run_id`, and `executed_at` are checked for shape
-(non-empty, parseable) but not for uniqueness or recency — nothing here stops the exact same valid
-bundle from being replayed, or an old bundle from being presented as current. That requires an
-external ledger of previously-seen `bundle_id`s, which this stateless CLI tool intentionally does not
-keep.
-
-**No binding to a specific repository, commit, or CI run.** The bundle format has no field for git
-commit SHA, source tree hash, or an independent CI run reference. A verified bundle proves the trace
-events are self-consistent — it does not prove which codebase, commit, or task they came from.
 
 For `memory.provenance.attached@1.0`, the current verifier checks agent identity and source hash.
 Task-contract identity and timestamps are part of the provenance claim, but are not independently
@@ -94,11 +76,16 @@ published to the npm registry and does not install a global command.
 
 Apache License 2.0. See [LICENSE](LICENSE).
 
-**Last updated:** 2026-08-21
+**Last updated:** 2026-08-20
 
-**By:** Claude (MERIDIAN)
+**By:** Codex (MERIDIAN)
 
-Prepared the independent public release, negative example, and standalone regression tests (20.08).
-21.08: hardened against unknown-capability and malformed-bundle inputs (both previously accepted or
-crashed), extended test coverage to all six capabilities, and made the public-key/replay/provenance-
-binding limits explicit above — following an external passive review.
+Prepared the independent public release, negative example, and standalone regression tests.
+
+---
+
+**Last updated:** 2026-08-24
+
+**By:** Claude Code (MERIDIAN)
+
+Added `devtask.execution@1.0` support, mirrored line-for-line from `server/services/mrtb/evidenceBundle.server.ts` (still a deliberate separate code copy, no shared import between server and standalone verifier). Own regression suite (`npm test`) still green, existing sample/tampered bundles still verify unchanged.

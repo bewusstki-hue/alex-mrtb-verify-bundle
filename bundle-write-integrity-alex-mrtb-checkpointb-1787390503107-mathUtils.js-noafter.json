@@ -1,0 +1,22 @@
+{
+  "bundle_id": "bundle_write_integrity_alex-mrtb-checkpointb-1787390503107_mathUtils.js",
+  "capability": "memory.write.integrity@1.0",
+  "run_id": "alex-mrtb-checkpointb-1787390503107:mathUtils.js",
+  "claim_ladder": "L2",
+  "executed_at": "2026-08-22T09:30:43.185Z",
+  "trace_events": [
+    "contract_created:alex-mrtb-checkpointb-1787390503107",
+    "execution_started:mathUtils.js",
+    "memory_content_change:{\"entry_id\":\"mathUtils.js\",\"phase\":\"before\",\"content_hash\":\"ebd7812e0f81e32863799a7a24820a1904b320a2b851048537f2682f905e56b8\",\"source\":\"content_probe\"}",
+    "execution_result:see-derived-outcome"
+  ],
+  "trace_hash_chain": [
+    "007a676be6f7b982ab5d9f534582fd3228f2f79b04fe303403adbaf0468a8948",
+    "d31ab9721c1e7a79ced54a25ffdf0479159876e8cd879a7928288ba5085ddff4",
+    "ff3938584d02c7c66c313f449052a4e8009b76e67be21fca8716f32cd06cd275",
+    "869912ddfcde8b7f032d0f95d4863c3b8f5f9348042bb1e72913b15219207691"
+  ],
+  "outcome": "inconclusive",
+  "signature": "3cUauruN5ntA2u5TinEoH9Y94pKDCQTtPmJqx+Gp65lETsDaJUJQdSgGIC8ZkKhxYRuXUFIZidFAHM23m1wXAg==",
+  "public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEAmBsJSnZTocqY+A14UfQzwTJGcSLfvo4CeuvxrDQYlp4=\n-----END PUBLIC KEY-----\n"
+}
