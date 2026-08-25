@@ -47,7 +47,9 @@ Supported capability traces:
   `devtask_execution_context:` / `devtask_validation:` / `devtask_human_approval:` /
   `devtask_outcome:` (first non-`memory.*` capability: proves a real dev-task execution attempt
   ran under a specific frozen work contract, with which validation result, approved by whom, and
-  with which final outcome)
+  with which final outcome). An optional `devtask_diff_evidence:` event may also be present --
+  a SHA-256 hash of the `git diff --stat` summary line, not the full diff content. Informational
+  only, does not affect the derived outcome; older bundles without it still verify unchanged.
 
 ## Exact computation rule (hash chain + signature payload)
 
@@ -123,3 +125,11 @@ Prepared the independent public release, negative example, and standalone regres
 **By:** Claude Code (MERIDIAN)
 
 Added `devtask.execution@1.0` support, mirrored line-for-line from `server/services/mrtb/evidenceBundle.server.ts` (still a deliberate separate code copy, no shared import between server and standalone verifier). Own regression suite (`npm test`) still green, existing sample/tampered bundles still verify unchanged.
+
+---
+
+**Last updated:** 2026-08-25
+
+**By:** Claude Code (MERIDIAN)
+
+Following external review feedback on a real published `devtask.execution@1.0` bundle: added the exact hash-chain/signature-payload computation rule as prose (reproducible without reading the TS source), and optional `devtask_diff_evidence` parsing (SHA-256 of the `diff_stat` summary line -- not the full diff, informational only, does not change derived outcome). Server-side change mirrored in `server/services/mrtb/evidenceBundle.server.ts` + `server/services/alexWorkflowCore.server.ts`, typecheck clean.

@@ -118,6 +118,18 @@ interface DevTaskOutcomeTraceEvent {
   reference: string;
 }
 
+// Optional (25.08.2026): hashes the diff_stat summary line, not the full diff content. Purely
+// informational here -- does not affect deriveOutcomeFromTrace, so bundles issued before this
+// field existed keep verifying unchanged.
+interface DevTaskDiffEvidenceTraceEvent {
+  task_id: string;
+  attempt_number: number;
+  diff_stat_sha256: string;
+  scope: "diff_stat_only";
+}
+
+const DEVTASK_DIFF_EVIDENCE_PREFIX = "devtask_diff_evidence:";
+
 function parseDevTaskEvent<T>(event: string, prefix: string): T | null {
   if (!event.startsWith(prefix)) return null;
   try {
@@ -377,6 +389,13 @@ function main() {
   }
 
   console.log(`✅ Bundle ${bundle.bundle_id} verified. Capability=${bundle.capability}, Claim-Ladder=${bundle.claim_ladder}`);
+
+  const diffEvidence = bundle.trace_events
+    .map((e) => parseDevTaskEvent<DevTaskDiffEvidenceTraceEvent>(e, DEVTASK_DIFF_EVIDENCE_PREFIX))
+    .find(Boolean);
+  if (diffEvidence) {
+    console.log(`   diff_stat sha256=${diffEvidence.diff_stat_sha256} (scope: ${diffEvidence.scope} -- not a full-diff hash)`);
+  }
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
