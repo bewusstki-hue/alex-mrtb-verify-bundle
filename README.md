@@ -114,7 +114,7 @@ Apache License 2.0. See [LICENSE](LICENSE).
 
 **Last updated:** 2026-08-20
 
-**By:** Codex (MERIDIAN)
+**By:** Bewusst.KI
 
 Prepared the independent public release, negative example, and standalone regression tests.
 
@@ -122,14 +122,14 @@ Prepared the independent public release, negative example, and standalone regres
 
 **Last updated:** 2026-08-24
 
-**By:** Claude Code (MERIDIAN)
+**By:** Bewusst.KI
 
 Added `devtask.execution@1.0` support, mirrored line-for-line from `server/services/mrtb/evidenceBundle.server.ts` (still a deliberate separate code copy, no shared import between server and standalone verifier). Own regression suite (`npm test`) still green, existing sample/tampered bundles still verify unchanged.
 
 ---
 
-**Last updated:** 2026-08-25
+**Last updated:** 2026-08-27
 
-**By:** Claude Code (MERIDIAN)
+**By:** Bewusst.KI
 
 Following external review feedback on a real published `devtask.execution@1.0` bundle: added the exact hash-chain/signature-payload computation rule as prose (reproducible without reading the TS source), and optional `devtask_diff_evidence` parsing (SHA-256 of the `diff_stat` summary line -- not the full diff, informational only, does not change derived outcome). Server-side change mirrored in `server/services/mrtb/evidenceBundle.server.ts` + `server/services/alexWorkflowCore.server.ts`, typecheck clean.
