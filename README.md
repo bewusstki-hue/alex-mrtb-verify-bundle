@@ -172,6 +172,16 @@ Ed25519-Schlüsselpaar unabhängig vom Bundle. Voraussetzung dafür live gefunde
 ein neues Schlüsselpaar -- ein extern verteilter Schlüssel wäre spätestens beim nächsten Deploy
 wertlos gewesen. Jetzt disk-persistent (`server/services/mrtb/evidenceBundle.server.ts`).
 
+**Zuletzt bearbeitet:** 2026-08-29 (Nachtrag, gleicher Tag)
+**Von:** Claude Code (MERIDIAN)
+Optionales `rfc3161_timestamp`-Feld ergänzt (`Rfc3161Timestamp`-Interface,
+`verifyRfc3161Binding()`) -- bestätigt, dass ein von einer öffentlichen Zeitstempelstelle
+(FreeTSA) angehefteter RFC-3161-Zeitstempel wirklich zum vorliegenden Bundle-Inhalt gehört.
+`verifyBundleObject()` schließt das Feld korrekt aus der signierten Nutzlast aus (es wird immer
+erst NACH dem Signieren angehängt). Geprüft wird ausdrücklich nur die Hash-Bindung, nicht die
+CMS-Signatur der TSA selbst oder deren Zertifikatskette -- das rohe `token_der_base64` ist
+Standard-RFC-3161-DER und mit externen Werkzeugen (z.B. `openssl ts`) unabhängig prüfbar.
+
 Ehrlicher Stand der Claim-Ladder, da das Typ-System `"L0"|"L1"|"L2"|"L3"|"L4"` mehr suggeriert als
 der Server tatsächlich vergibt: `createSignedEvidenceBundleV2()` erzeugt ausschließlich `L0`
 (nicht verifiziert) oder `L2` (verifiziert). `L3` existiert nur als optionaler, separater Pfad

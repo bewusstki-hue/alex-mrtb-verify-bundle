@@ -44,6 +44,19 @@ export function verifyReviewerAttestation(attestation: ReviewerAttestationV1, tr
   return { ok: true };
 }
 
+/** 29.08.2026: RFC-3161-Zeitstempel ueber den kompletten signierten Bundle-Inhalt, best-effort
+ *  von einer oeffentlichen TSA angehaengt (siehe rfc3161Timestamp.server.ts im Alex-Monorepo,
+ *  identische Definition hier). Dieser Verifier prueft nur die Hash-Bindung (Timestamp gehoert
+ *  wirklich zu diesem Bundle), NICHT die CMS-Signatur der TSA oder deren Zertifikatskette --
+ *  das rohe `token_der_base64` ist Standard-RFC-3161-DER und mit externen Werkzeugen pruefbar. */
+export interface Rfc3161Timestamp {
+  schema_version: "rfc3161-timestamp@1.0";
+  tsa_url: string;
+  timestamped_sha256: string;
+  gen_time: string;
+  token_der_base64: string;
+}
+
 export interface EvidenceBundle {
   schema_version?: "evidence-package@2.0";
   bundle_id: string;
@@ -59,6 +72,17 @@ export interface EvidenceBundle {
   signer_key_id?: string;
   controller_evidence?: DevTaskControllerEvidenceV2;
   required_evidence?: string[];
+  rfc3161_timestamp?: Rfc3161Timestamp;
+}
+
+/** Prueft nur, dass ein vorhandener Zeitstempel wirklich zu DIESEM Bundle-Inhalt gehoert
+ *  (Hash-Uebereinstimmung) -- kein Ersatz fuer die eigentliche Signaturpruefung. */
+export function verifyRfc3161Binding(bundle: EvidenceBundle): { ok: boolean; reason?: string } {
+  if (!bundle.rfc3161_timestamp) return { ok: false, reason: "no_timestamp_present" };
+  const { rfc3161_timestamp, ...withoutTimestamp } = bundle;
+  const recomputed = sha256(JSON.stringify(withoutTimestamp));
+  if (recomputed !== rfc3161_timestamp.timestamped_sha256) return { ok: false, reason: "timestamp_hash_mismatch" };
+  return { ok: true };
 }
 
 interface DevTaskControllerEvidenceV2 {
@@ -490,7 +514,10 @@ function deriveDevTaskV2Outcome(events: string[], controller: DevTaskControllerE
 }
 
 export function verifyBundleObject(bundle: EvidenceBundle, trustedPublicKey?: string): { ok: boolean; reason?: string } {
-  const { signature, public_key, ...payload } = bundle;
+  // rfc3161_timestamp wird IMMER erst nach dem Signieren angehaengt -- war nie Teil der
+  // signierten Nutzlast, muss hier ebenso ausgeschlossen werden (siehe verifyRfc3161Binding()
+  // fuer die getrennte Pruefung der Zeitstempel-Bindung selbst).
+  const { signature, public_key, rfc3161_timestamp, ...payload } = bundle;
 
   if (bundle.schema_version === "evidence-package@2.0") {
     if (!trustedPublicKey) return { ok: false, reason: "missing_trust_anchor" };
@@ -598,6 +625,16 @@ function main() {
       console.log(`   full diff sha256=${diffEvidence.diff_full_sha256} (scope: ${diffEvidence.scope})`);
     } else {
       console.log(`   (scope: ${diffEvidence.scope} -- no full-diff hash on this bundle)`);
+    }
+  }
+
+  if (bundle.rfc3161_timestamp) {
+    const tsResult = verifyRfc3161Binding(bundle);
+    if (tsResult.ok) {
+      console.log(`   RFC-3161 timestamp bound correctly: gen_time=${bundle.rfc3161_timestamp.gen_time}, tsa=${bundle.rfc3161_timestamp.tsa_url}`);
+      console.log("   (binding only -- this tool does not verify the TSA's own CMS signature or certificate chain)");
+    } else {
+      console.warn(`   ⚠ RFC-3161 timestamp present but ${tsResult.reason} -- ignoring it, bundle verdict above is unaffected`);
     }
   }
 }
