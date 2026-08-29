@@ -2,6 +2,11 @@
 
 AI work should ship with evidence that can be checked without trusting the AI that produced it.
 
+**Zuletzt bearbeitet:** 2026-08-26
+**Von:** Codex (MERIDIAN)
+V2 verlangt einen separat bezogenen Trust-Anchor und prüft Controller-Vollständigkeit.
+R3/R4 erfordern zusätzlich eine gültige `sandbox-attestation@2.0` mit vier Manifest-/Policy-Hashes.
+
 This repository contains a deterministic verifier for signed evidence bundles. It has no dependency
 on the agent system that created a bundle.
 
@@ -15,6 +20,20 @@ npm test
 npm run verify -- sample-bundle.json
 npm run verify -- invalid-tampered-bundle.json
 ```
+
+Evidence Package V2 benötigt zusätzlich den separat bezogenen Trust-Anchor:
+
+```bash
+npm run verify -- evidence-v2.json trusted-public-key.pem
+```
+
+Der im Paket mitgelieferte Schlüssel allein ist bei V2 ausdrücklich kein Vertrauensbeweis.
+
+Den zu verwendenden Trust-Anchor bezieht man unabhängig von jedem einzelnen Bundle unter
+`https://bewusstki.de/.well-known/alex-pubkey.json` (Feld `public_key_pem`) -- niemals aus dem
+Bundle selbst. Dieser Endpunkt liefert das aktuell gültige, disk-persistente Ed25519-Schlüsselpaar
+des Evidence-Signierdienstes; es überlebt Server-Neustarts (vor dem 29.08.2026 war das nicht der
+Fall, siehe Changelog unten).
 
 Expected results:
 
@@ -47,9 +66,9 @@ Supported capability traces:
   `devtask_execution_context:` / `devtask_validation:` / `devtask_human_approval:` /
   `devtask_outcome:` (first non-`memory.*` capability: proves a real dev-task execution attempt
   ran under a specific frozen work contract, with which validation result, approved by whom, and
-  with which final outcome). An optional `devtask_diff_evidence:` event may also be present --
-  a SHA-256 hash of the `git diff --stat` summary line, not the full diff content. Informational
-  only, does not affect the derived outcome; older bundles without it still verify unchanged.
+  with which final outcome). V2 verlangt zusätzlich Controller-Evidenz, vollständigen Diff-Hash,
+  einen extern gelieferten Trust-Anchor und — bei R3/R4 — eine Sandbox-Attestierung. Fehlende
+  Pflichtbelege ergeben `INCONCLUSIVE`; ältere V1-Bundles bleiben unverändert prüfbar.
 
 ## Exact computation rule (hash chain + signature payload)
 
@@ -72,7 +91,9 @@ link depends on all prior events), not a Merkle tree.
 `public_key`, serialized with `JSON.stringify()` in exactly this key order:
 
 ```
-{ bundle_id, capability, run_id, claim_ladder, executed_at, trace_events, trace_hash_chain, outcome }
+V1: { bundle_id, capability, run_id, claim_ladder, executed_at, trace_events, trace_hash_chain, outcome }
+V2: { schema_version, bundle_id, capability, run_id, claim_ladder, executed_at, trace_events,
+      trace_hash_chain, outcome, signer_key_id, controller_evidence, required_evidence }
 ```
 
 `signature` is the Ed25519 signature (Node `crypto.sign(null, Buffer.from(JSON.stringify(payload)), privateKey)`)
@@ -114,7 +135,7 @@ Apache License 2.0. See [LICENSE](LICENSE).
 
 **Last updated:** 2026-08-20
 
-**By:** Bewusst.KI
+**By:** Codex (MERIDIAN)
 
 Prepared the independent public release, negative example, and standalone regression tests.
 
@@ -122,14 +143,40 @@ Prepared the independent public release, negative example, and standalone regres
 
 **Last updated:** 2026-08-24
 
-**By:** Bewusst.KI
+**By:** Claude Code (MERIDIAN)
 
 Added `devtask.execution@1.0` support, mirrored line-for-line from `server/services/mrtb/evidenceBundle.server.ts` (still a deliberate separate code copy, no shared import between server and standalone verifier). Own regression suite (`npm test`) still green, existing sample/tampered bundles still verify unchanged.
 
 ---
 
-**Last updated:** 2026-08-27
+**Last updated:** 2026-08-25
 
-**By:** Bewusst.KI
+**By:** Claude Code (MERIDIAN)
 
 Following external review feedback on a real published `devtask.execution@1.0` bundle: added the exact hash-chain/signature-payload computation rule as prose (reproducible without reading the TS source), and optional `devtask_diff_evidence` parsing (SHA-256 of the `diff_stat` summary line -- not the full diff, informational only, does not change derived outcome). Server-side change mirrored in `server/services/mrtb/evidenceBundle.server.ts` + `server/services/alexWorkflowCore.server.ts`, typecheck clean.
+**Zuletzt bearbeitet:** 2026-08-27
+**Von:** Codex (MERIDIAN)
+Der unabhaengige Verifier prueft `repository-state@1.0`: Vorher-/Nachher-Baum,
+Ergebnis-Commit und SHA-256-Inhaltshashes jeder geaenderten Datei.
+
+**Zuletzt bearbeitet:** 2026-08-27
+**Von:** Codex (MERIDIAN)
+Optionaler L3-Pfad: separat signierte `validation-attestation@1.0` aus einem digest-gepinnten,
+netzlosen Runner plus `reviewer-attestation@1.0`, die exakte Bundle-/Validation-Bytes bindet.
+
+**Zuletzt bearbeitet:** 2026-08-29
+**Von:** Claude Code (MERIDIAN)
+Externer Vertrauensanker ergänzt: `https://bewusstki.de/.well-known/alex-pubkey.json` liefert das
+Ed25519-Schlüsselpaar unabhängig vom Bundle. Voraussetzung dafür live gefunden und gefixt:
+`ensureKeypair()` nutzte den RAM-only-Pfad des Server-Keystores, jeder Prozessneustart erzeugte
+ein neues Schlüsselpaar -- ein extern verteilter Schlüssel wäre spätestens beim nächsten Deploy
+wertlos gewesen. Jetzt disk-persistent (`server/services/mrtb/evidenceBundle.server.ts`).
+
+Ehrlicher Stand der Claim-Ladder, da das Typ-System `"L0"|"L1"|"L2"|"L3"|"L4"` mehr suggeriert als
+der Server tatsächlich vergibt: `createSignedEvidenceBundleV2()` erzeugt ausschließlich `L0`
+(nicht verifiziert) oder `L2` (verifiziert). `L3` existiert nur als optionaler, separater Pfad
+außerhalb des Bundle-Felds selbst (siehe Eintrag oben, 27.08.) -- das `claim_ladder`-Feld im
+Bundle bleibt dabei bei `L2`, nur eine zusätzliche, separat geprüfte Attestierung kommt hinzu.
+`L1` und `L4` sind reine Typ-Slots ohne Erzeugungslogik. Kein `L5` im Typ vorhanden (Vorschlag aus
+einer externen Härtungs-Review, noch nicht umgesetzt: unabhängige Event-Quelle oder Hardware-
+Attestierung, siehe "Deliberate limits" oben).

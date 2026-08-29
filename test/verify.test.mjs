@@ -1,7 +1,11 @@
 import assert from "node:assert/strict";
 import { createHash, generateKeyPairSync, sign } from "node:crypto";
 import test from "node:test";
-import { verifyBundleObject } from "../dist/verify.js";
+import { verifyBundleObject, verifyValidationAttestation, verifyReviewerAttestation } from "../dist/verify.js";
+
+const canonical = value => Array.isArray(value) ? `[${value.map(canonical).join(",")}]` :
+  value && typeof value === "object" ? `{${Object.keys(value).sort().map(k => `${JSON.stringify(k)}:${canonical(value[k])}`).join(",")}}` : JSON.stringify(value);
+const sha256 = value => createHash("sha256").update(value).digest("hex");
 
 function hashChain(events) {
   const chain = [];
@@ -56,4 +60,29 @@ test("rejects a verified claim contradicted by its trace", () => {
     ok: false,
     reason: "trace_outcome_mismatch:declared=verified:derived=failed",
   });
+});
+
+test("accepts independent validation only for the trusted runner and exact commit", () => {
+  const { publicKey, privateKey } = generateKeyPairSync("ed25519");
+  const pem = publicKey.export({ type: "spki", format: "pem" }).toString();
+  const environment = { image_digest: `node@sha256:${"a".repeat(64)}`, network: "none" };
+  const payload = { schema_version: "validation-attestation@1.0", producer: "independent_evidence_runner", repository_commit: "commit-a",
+    environment, environment_sha256: sha256(canonical(environment)), started_at: "2026-08-27T00:00:00Z", completed_at: "2026-08-27T00:01:00Z",
+    duration_ms: 60000, exit_code: 0, passed: true, stdout_sha256: "b".repeat(64), stderr_sha256: "c".repeat(64), report_sha256: "d".repeat(64) };
+  const attestation = { ...payload, signer_key_id: `ed25519:${sha256(pem)}`, public_key: pem,
+    signature: sign(null, Buffer.from(canonical(payload)), privateKey).toString("base64") };
+  assert.deepEqual(verifyValidationAttestation(attestation, pem, "commit-a"), { ok: true });
+  assert.equal(verifyValidationAttestation(attestation, pem, "commit-b").reason, "validation_scope_mismatch");
+});
+
+test("reviewer signature binds the exact bundle and validation bytes", () => {
+  const { publicKey, privateKey } = generateKeyPairSync("ed25519");
+  const pem = publicKey.export({ type: "spki", format: "pem" }).toString();
+  const bundle = Buffer.from("bundle"); const validation = Buffer.from("validation");
+  const payload = { schema_version: "reviewer-attestation@1.0", reviewer_id: "reviewer-server-1", decision: "approved",
+    reviewed_at: "2026-08-27T00:02:00Z", bundle_sha256: sha256(bundle), validation_attestation_sha256: sha256(validation) };
+  const attestation = { ...payload, reviewer_key_id: `ed25519:${sha256(pem)}`, public_key: pem,
+    signature: sign(null, Buffer.from(canonical(payload)), privateKey).toString("base64") };
+  assert.deepEqual(verifyReviewerAttestation(attestation, pem, bundle, validation), { ok: true });
+  assert.equal(verifyReviewerAttestation(attestation, pem, Buffer.from("changed"), validation).reason, "review_scope_mismatch");
 });
