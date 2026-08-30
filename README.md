@@ -1,5 +1,11 @@
 # Independent Evidence Bundle Verifier
 
+**Zuletzt bearbeitet:** 2026-08-30
+**Von:** Codex (MERIDIAN)
+Originale Evidence Packages der Engine-PRs #19-#21 liegen unter `evidence/`. Neue Pakete binden
+Executor, Harness und Adapter-Version samt SHA-256 in den signierten Trace; historische V2-Pakete
+ohne diese additiven Felder bleiben verifizierbar.
+
 AI work should ship with evidence that can be checked without trusting the AI that produced it.
 
 **Zuletzt bearbeitet:** 2026-08-26

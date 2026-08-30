@@ -206,6 +206,10 @@ interface DevTaskExecutionContextTraceEvent {
   attempt_number: number;
   sandbox_reference: string | null;
   execution_reference: string;
+  executor?: "deepseek" | "hermes" | "opencode" | "aider" | "cline";
+  harness_id?: string;
+  adapter_version?: string;
+  adapter_version_sha256?: string;
 }
 
 interface DevTaskValidationTraceEvent {
@@ -475,6 +479,12 @@ function deriveDevTaskV2Outcome(events: string[], controller: DevTaskControllerE
   const outcome = events.map((e) => parseDevTaskEvent<DevTaskOutcomeTraceEvent>(e, DEVTASK_OUTCOME_PREFIX)).find(Boolean) ?? null;
   if (controller.task_id !== contract?.task_id || controller.attempt_number !== contract?.attempt_number) return "failed";
   if (controller.execution_reference !== context?.execution_reference) return "failed";
+  const hasExecutorProvenance = Boolean(context && (context.executor || context.harness_id || context.adapter_version || context.adapter_version_sha256));
+  if (hasExecutorProvenance && (!context || !context.executor || !context.harness_id || !context.adapter_version || !context.adapter_version_sha256 ||
+      !["deepseek", "hermes", "opencode", "aider", "cline"].includes(context.executor) ||
+      !/^[a-z0-9][a-z0-9._-]*$/.test(context.harness_id) ||
+      !/^[a-z0-9][a-z0-9._@/-]*$/.test(context.adapter_version) ||
+      context.adapter_version_sha256 !== sha256(context.adapter_version))) return "failed";
   if (controller.validation_reference !== validation?.validation_reference) return "failed";
   if (controller.diff_stat_sha256 !== diff?.diff_stat_sha256) return "failed";
   if (controller.diff_full_sha256 !== diff?.diff_full_sha256) return "failed";
