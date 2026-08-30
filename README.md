@@ -33,10 +33,18 @@ Evidence Package V2 benötigt zusätzlich den separat bezogenen Trust-Anchor:
 npm run verify -- evidence-v2.json trusted-public-key.pem
 ```
 
+Neue, freigegebene Pakete mit `approval_attestation_required: true` benoetigen zusaetzlich den
+getrennten Approval-Anker:
+
+```bash
+npm run verify -- evidence-v2.json controller-key.pem approval-key.pem
+```
+
 Der im Paket mitgelieferte Schlüssel allein ist bei V2 ausdrücklich kein Vertrauensbeweis.
 
 Den zu verwendenden Trust-Anchor bezieht man unabhängig von jedem einzelnen Bundle unter
-`https://bewusstki.de/.well-known/alex-pubkey.json` (Feld `public_key_pem`) -- niemals aus dem
+`https://bewusstki.de/.well-known/alex-pubkey.json` (Felder `public_key_pem` und
+`approval_signer.public_key_pem`) -- niemals aus dem
 Bundle selbst. Dieser Endpunkt liefert das aktuell gültige, disk-persistente Ed25519-Schlüsselpaar
 des Evidence-Signierdienstes; es überlebt Server-Neustarts (vor dem 29.08.2026 war das nicht der
 Fall, siehe Changelog unten).
@@ -196,3 +204,9 @@ Bundle bleibt dabei bei `L2`, nur eine zusätzliche, separat geprüfte Attestier
 `L1` und `L4` sind reine Typ-Slots ohne Erzeugungslogik. Kein `L5` im Typ vorhanden (Vorschlag aus
 einer externen Härtungs-Review, noch nicht umgesetzt: unabhängige Event-Quelle oder Hardware-
 Attestierung, siehe "Deliberate limits" oben).
+
+**Zuletzt bearbeitet:** 2026-08-30
+**Von:** Codex (MERIDIAN)
+Neue freigegebene V2-Pakete tragen eine zweite Ed25519-Signatur ueber den SHA-256 des exakten,
+bereits signierten Bundles. Das signierte Pflichtmerkmal verhindert stilles Weglassen;
+historische V2-Pakete bleiben unveraendert gueltig und werden nicht nachsigniert.

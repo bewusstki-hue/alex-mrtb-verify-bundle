@@ -86,3 +86,20 @@ test("reviewer signature binds the exact bundle and validation bytes", () => {
   assert.deepEqual(verifyReviewerAttestation(attestation, pem, bundle, validation), { ok: true });
   assert.equal(verifyReviewerAttestation(attestation, pem, Buffer.from("changed"), validation).reason, "review_scope_mismatch");
 });
+
+test("approval signature binds the exact bundle and cannot be removed or reassigned", () => {
+  const bundle = signedBundle({ events: [verifiedEvent] });
+  const unsignedPrimary = { ...bundle, approval_attestation_required: true };
+  const primaryPair = generateKeyPairSync("ed25519");
+  const { signature: _oldSignature, public_key: _oldKey, ...primaryPayload } = unsignedPrimary;
+  const primaryPem = primaryPair.publicKey.export({ type: "spki", format: "pem" }).toString();
+  const signedPrimary = { ...primaryPayload, signature: sign(null, Buffer.from(JSON.stringify(primaryPayload)), primaryPair.privateKey).toString("base64"), public_key: primaryPem };
+  const approvalPair = generateKeyPairSync("ed25519");
+  const approvalPem = approvalPair.publicKey.export({ type: "spki", format: "pem" }).toString();
+  const approvalPayload = { schema_version: "approval-attestation@1.0", actor_id: "telegram:123", approved_at: "2026-08-30T16:00:00.000Z", bundle_sha256: sha256(JSON.stringify(signedPrimary)) };
+  const approval_attestation = { ...approvalPayload, signer_key_id: `ed25519:${sha256(approvalPem)}`, public_key: approvalPem, signature: sign(null, Buffer.from(JSON.stringify(approvalPayload)), approvalPair.privateKey).toString("base64") };
+  const completed = { ...signedPrimary, approval_attestation };
+  assert.deepEqual(verifyBundleObject(completed, undefined, approvalPem), { ok: true });
+  assert.equal(verifyBundleObject(signedPrimary, undefined, approvalPem).reason, "missing_approval_attestation");
+  assert.equal(verifyBundleObject({ ...completed, approval_attestation: { ...approval_attestation, actor_id: "attacker" } }, undefined, approvalPem).reason, "invalid_approval_signature");
+});

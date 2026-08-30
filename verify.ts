@@ -73,6 +73,13 @@ export interface EvidenceBundle {
   controller_evidence?: DevTaskControllerEvidenceV2;
   required_evidence?: string[];
   rfc3161_timestamp?: Rfc3161Timestamp;
+  approval_attestation_required?: boolean;
+  approval_attestation?: ApprovalAttestationV1;
+}
+
+export interface ApprovalAttestationV1 {
+  schema_version: "approval-attestation@1.0"; actor_id: string; approved_at: string; bundle_sha256: string;
+  signer_key_id: string; public_key: string; signature: string;
 }
 
 /** Prueft nur, dass ein vorhandener Zeitstempel wirklich zu DIESEM Bundle-Inhalt gehoert
@@ -92,6 +99,7 @@ interface DevTaskControllerEvidenceV2 {
   base_commit: string | null;
   result_reference: string | null;
   diff_stat_sha256: string | null;
+  diff_full: string | null;
   diff_full_sha256: string | null;
   execution_reference: string | null;
   validation_reference: string | null;
@@ -108,18 +116,33 @@ interface RepositoryStateEvidenceV1 {
   changed_files: Array<{ path: string; status: "A" | "M" | "D"; before_sha256: string | null; after_sha256: string | null }>;
 }
 
+interface NetworkCaptureEvidenceV1 {
+  schema_version: "egress-capture@1.0"; dns_queries_sha256: string; connections_sha256: string;
+  connection_count: number; capture_incomplete: boolean;
+}
+
 interface SandboxAttestationV2 {
   schema_version: "sandbox-attestation@2.0"; sandbox_id: string; agent_id: string;
   started_at: string; completed_at: string; snapshot_sha256: string; policy_sha256: string;
   os_isolation_available: boolean; git_metadata_absent: boolean; controller_checkout_separated: boolean;
-  network_policy: "bubblewrap_unshare_net_fail_closed"; environment_policy: "bubblewrap_clearenv";
+  network_policy: "bubblewrap_unshare_net_fail_closed" | "netns_egress_logged_v1"; environment_policy: "bubblewrap_clearenv";
   process_policy: "systemd_scope_limits_and_kill"; handoff_manifest_sha256: string; rejected_manifest_sha256: string;
+  network_capture: NetworkCaptureEvidenceV1 | null;
 }
 
-const SANDBOX_ATTESTATION_POLICY = {
+const SANDBOX_ATTESTATION_POLICY_NO_NETWORK = {
   schema_version: "sandbox-attestation@2.0", filesystem: "snapshot_without_git_or_symlinks",
   network: "bubblewrap_unshare_net_fail_closed", environment: "bubblewrap_clearenv",
   process: "systemd_scope_limits_and_kill", handoff: "regular_files_only_filtered",
+};
+
+// 29.08.2026 ("Code-Pruefstand"): zweites Profil, echtes Netzwerk + Verbindungsmitschnitt statt
+// --unshare-net. Identische Ergaenzung wie in server/services/agentSandbox.server.ts und
+// server/services/mrtb/evidenceBundle.server.ts -- bewusst von Hand dupliziert, kein Shared Import
+// zwischen Server und diesem eigenstaendigen Verifier (siehe Datei-Header oben).
+const SANDBOX_ATTESTATION_POLICY_NETWORK_CAPTURE = {
+  ...SANDBOX_ATTESTATION_POLICY_NO_NETWORK,
+  network: "netns_egress_logged_v1" as const,
 };
 
 const PROVENANCE_CAPABILITY = "memory.provenance.attached@1.0";
@@ -206,10 +229,10 @@ interface DevTaskExecutionContextTraceEvent {
   attempt_number: number;
   sandbox_reference: string | null;
   execution_reference: string;
-  executor?: "deepseek" | "hermes" | "opencode" | "aider" | "cline";
-  harness_id?: string;
-  adapter_version?: string;
-  adapter_version_sha256?: string;
+  executor: "deepseek" | "hermes" | "opencode" | "aider" | "cline";
+  harness_id: string;
+  adapter_version: string;
+  adapter_version_sha256: string;
 }
 
 interface DevTaskValidationTraceEvent {
@@ -480,14 +503,15 @@ function deriveDevTaskV2Outcome(events: string[], controller: DevTaskControllerE
   if (controller.task_id !== contract?.task_id || controller.attempt_number !== contract?.attempt_number) return "failed";
   if (controller.execution_reference !== context?.execution_reference) return "failed";
   const hasExecutorProvenance = Boolean(context && (context.executor || context.harness_id || context.adapter_version || context.adapter_version_sha256));
-  if (hasExecutorProvenance && (!context || !context.executor || !context.harness_id || !context.adapter_version || !context.adapter_version_sha256 ||
-      !["deepseek", "hermes", "opencode", "aider", "cline"].includes(context.executor) ||
+  if (hasExecutorProvenance && (!context || !["deepseek", "hermes", "opencode", "aider", "cline"].includes(context.executor) ||
       !/^[a-z0-9][a-z0-9._-]*$/.test(context.harness_id) ||
       !/^[a-z0-9][a-z0-9._@/-]*$/.test(context.adapter_version) ||
       context.adapter_version_sha256 !== sha256(context.adapter_version))) return "failed";
   if (controller.validation_reference !== validation?.validation_reference) return "failed";
   if (controller.diff_stat_sha256 !== diff?.diff_stat_sha256) return "failed";
   if (controller.diff_full_sha256 !== diff?.diff_full_sha256) return "failed";
+  if (controller.diff_full !== null && controller.diff_full_sha256 !== null &&
+      createHash("sha256").update(controller.diff_full).digest("hex") !== controller.diff_full_sha256) return "failed";
   if (outcome?.outcome === "COMPLETED" && controller.approval_reference !== approval?.approval_reference) return "failed";
   const repository = controller.repository_state;
   if (repository) {
@@ -503,19 +527,36 @@ function deriveDevTaskV2Outcome(events: string[], controller: DevTaskControllerE
   const attestation = controller.sandbox_attestation;
   const attestationHash = attestation ? `sandbox-attestation:sha256:${createHash("sha256").update(JSON.stringify(attestation)).digest("hex")}` : null;
   if (controller.sandbox_reference !== context?.sandbox_reference || controller.sandbox_reference !== attestationHash) return "failed";
+  // 29.08.2026 ("Code-Pruefstand"): welche Policy-Konstante fuer die policy_sha256-Nachrechnung gilt,
+  // haengt vom behaupteten Profil ab; network_capture muss dazu konsistent sein (befuellt genau
+  // dann wenn netns_egress_logged_v1 behauptet wird, sonst null) -- identische Pruefung wie in
+  // server/services/mrtb/evidenceBundle.server.ts (kein Shared Import, siehe Datei-Header oben).
+  const expectedPolicy = attestation?.network_policy === "netns_egress_logged_v1"
+    ? SANDBOX_ATTESTATION_POLICY_NETWORK_CAPTURE
+    : SANDBOX_ATTESTATION_POLICY_NO_NETWORK;
+  const networkCaptureConsistent = attestation
+    ? (attestation.network_policy === "netns_egress_logged_v1"
+      ? Boolean(attestation.network_capture &&
+          attestation.network_capture.schema_version === "egress-capture@1.0" &&
+          /^[a-f0-9]{64}$/.test(attestation.network_capture.dns_queries_sha256) &&
+          /^[a-f0-9]{64}$/.test(attestation.network_capture.connections_sha256))
+      : attestation.network_capture === null)
+    : false;
   const sandboxValid = Boolean(attestation && attestation.schema_version === "sandbox-attestation@2.0" &&
     attestation.os_isolation_available && attestation.git_metadata_absent && attestation.controller_checkout_separated &&
-    attestation.network_policy === "bubblewrap_unshare_net_fail_closed" && attestation.environment_policy === "bubblewrap_clearenv" &&
+    (attestation.network_policy === "bubblewrap_unshare_net_fail_closed" || attestation.network_policy === "netns_egress_logged_v1") &&
+    networkCaptureConsistent &&
+    attestation.environment_policy === "bubblewrap_clearenv" &&
     attestation.process_policy === "systemd_scope_limits_and_kill" &&
     attestation.agent_id === controller.agent_run_id &&
-    attestation.policy_sha256 === createHash("sha256").update(JSON.stringify(SANDBOX_ATTESTATION_POLICY, Object.keys(SANDBOX_ATTESTATION_POLICY).sort())).digest("hex") &&
+    attestation.policy_sha256 === createHash("sha256").update(JSON.stringify(expectedPolicy, Object.keys(expectedPolicy).sort())).digest("hex") &&
     [attestation.snapshot_sha256, attestation.policy_sha256, attestation.handoff_manifest_sha256, attestation.rejected_manifest_sha256]
       .every((hash) => /^[a-f0-9]{64}$/.test(hash)));
   const present: Record<string, boolean> = {
     contract: Boolean(contract), attempt: events.some((e) => e.startsWith(DEVTASK_ATTEMPT_STARTED_PREFIX)),
     execution_context: Boolean(context && controller.execution_reference), validation: Boolean(validation && controller.validation_reference),
     outcome: Boolean(outcome), base_commit: Boolean(controller.base_commit), result_reference: Boolean(controller.result_reference),
-    diff_full: Boolean(diff?.diff_full_sha256 && controller.diff_full_sha256),
+    diff_full: Boolean(controller.diff_full && diff?.diff_full_sha256 && controller.diff_full_sha256),
     human_approval: Boolean(approval && controller.approval_reference),
     repository_state: Boolean(repository),
     sandbox_attestation: sandboxValid,
@@ -523,11 +564,11 @@ function deriveDevTaskV2Outcome(events: string[], controller: DevTaskControllerE
   return requiredDevTaskEvidenceV2(events, controller).every((name) => present[name]) ? "verified" : "inconclusive";
 }
 
-export function verifyBundleObject(bundle: EvidenceBundle, trustedPublicKey?: string): { ok: boolean; reason?: string } {
+export function verifyBundleObject(bundle: EvidenceBundle, trustedPublicKey?: string, trustedApprovalPublicKey?: string): { ok: boolean; reason?: string } {
   // rfc3161_timestamp wird IMMER erst nach dem Signieren angehaengt -- war nie Teil der
   // signierten Nutzlast, muss hier ebenso ausgeschlossen werden (siehe verifyRfc3161Binding()
   // fuer die getrennte Pruefung der Zeitstempel-Bindung selbst).
-  const { signature, public_key, rfc3161_timestamp, ...payload } = bundle;
+  const { signature, public_key, rfc3161_timestamp, approval_attestation, ...payload } = bundle;
 
   if (bundle.schema_version === "evidence-package@2.0") {
     if (!trustedPublicKey) return { ok: false, reason: "missing_trust_anchor" };
@@ -546,6 +587,15 @@ export function verifyBundleObject(bundle: EvidenceBundle, trustedPublicKey?: st
 
   if (!isValidSignature) {
     return { ok: false, reason: "invalid_signature" };
+  }
+  if (bundle.approval_attestation_required) {
+    if (!approval_attestation) return { ok: false, reason: "missing_approval_attestation" };
+    if (!trustedApprovalPublicKey) return { ok: false, reason: "missing_approval_trust_anchor" };
+    const { signature: approvalSignature, public_key: approvalPublicKey, signer_key_id, ...approvalPayload } = approval_attestation;
+    const { approval_attestation: _ignored, ...bundleWithoutApproval } = bundle;
+    if (approvalPublicKey !== trustedApprovalPublicKey || signer_key_id !== evidenceSignerKeyId(trustedApprovalPublicKey)) return { ok: false, reason: "untrusted_approval_signer" };
+    if (approvalPayload.bundle_sha256 !== sha256(JSON.stringify(bundleWithoutApproval))) return { ok: false, reason: "approval_bundle_hash_mismatch" };
+    if (!verify(null, Buffer.from(JSON.stringify(approvalPayload)), approvalPublicKey, Buffer.from(approvalSignature, "base64"))) return { ok: false, reason: "invalid_approval_signature" };
   }
 
   const rebuilt = buildHashChain(bundle.trace_events);
@@ -594,28 +644,29 @@ export function verifyBundleObject(bundle: EvidenceBundle, trustedPublicKey?: st
 function main() {
   const bundlePath = process.argv[2];
   if (!bundlePath) {
-    console.error("Usage: verify <bundle.json> <controller-key.pem> [validation.json evidence-key.pem review.json reviewer-key.pem]");
+    console.error("Usage: verify <bundle.json> <controller-key.pem> [approval-key.pem] [validation.json evidence-key.pem review.json reviewer-key.pem]");
     process.exit(1);
   }
 
   const bundle = JSON.parse(readFileSync(bundlePath, "utf-8")) as EvidenceBundle;
   const trustedPublicKey = process.argv[3] ? readFileSync(process.argv[3], "utf-8") : undefined;
-  const result = verifyBundleObject(bundle, trustedPublicKey);
+  const trustedApprovalPublicKey = process.argv[4] ? readFileSync(process.argv[4], "utf-8") : undefined;
+  const result = verifyBundleObject(bundle, trustedPublicKey, trustedApprovalPublicKey);
   if (!result.ok) {
     console.error(`❌ Bundle verification failed: ${result.reason}`);
     process.exit(2);
   }
 
-  if (process.argv[4]) {
-    const validationBytes = readFileSync(process.argv[4]);
+  if (process.argv[5]) {
+    const validationBytes = readFileSync(process.argv[5]);
     const validation = JSON.parse(validationBytes.toString("utf8")) as ValidationAttestationV1;
-    const evidenceKey = process.argv[5] ? readFileSync(process.argv[5], "utf8") : "";
+    const evidenceKey = process.argv[6] ? readFileSync(process.argv[6], "utf8") : "";
     const expectedCommit = bundle.controller_evidence?.repository_state?.result_commit ?? "";
     const validationResult = verifyValidationAttestation(validation, evidenceKey, expectedCommit);
     if (!validationResult.ok) { console.error(`Validation verification failed: ${validationResult.reason}`); process.exit(3); }
-    if (process.argv[6]) {
-      const bundleBytes = readFileSync(bundlePath); const review = JSON.parse(readFileSync(process.argv[6], "utf8")) as ReviewerAttestationV1;
-      const reviewerKey = process.argv[7] ? readFileSync(process.argv[7], "utf8") : "";
+    if (process.argv[7]) {
+      const bundleBytes = readFileSync(bundlePath); const review = JSON.parse(readFileSync(process.argv[7], "utf8")) as ReviewerAttestationV1;
+      const reviewerKey = process.argv[8] ? readFileSync(process.argv[8], "utf8") : "";
       const reviewResult = verifyReviewerAttestation(review, reviewerKey, bundleBytes, validationBytes);
       if (!reviewResult.ok) { console.error(`Reviewer verification failed: ${reviewResult.reason}`); process.exit(4); }
       console.log("   independent validation + reviewer signature verified (Claim-Ladder=L3)");
