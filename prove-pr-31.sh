@@ -23,9 +23,12 @@ echo "== [2/4] Beweispaket + aktuellen Trust-Anchor laden =="
 curl -sO https://bewusstki.de/downloads/verify-bundle/demo-pr-31.json
 curl -s https://bewusstki.de/.well-known/alex-pubkey.json -o pubkey.json
 node -e "process.stdout.write(require('./pubkey.json').public_key_pem)" > trusted-public-key.pem
+# PR #31 traegt eine separat signierte Freigabe-Attestation (approval_attestation_required:true) --
+# eigener Trust-Anchor, bewusst getrennt vom Evidence-Signierschluessel (siehe README).
+node -e "process.stdout.write(require('./pubkey.json').approval_signer.public_key_pem)" > trusted-approval-key.pem
 
-echo "== [3/4] L1 -- Signatur + Hash-Kette + ci_result gegen den Well-known-Key pruefen =="
-node verifier/dist/verify.js demo-pr-31.json trusted-public-key.pem
+echo "== [3/4] L1 -- Signatur + Hash-Kette + ci_result + Freigabe-Attestation gegen den Well-known-Key pruefen =="
+node verifier/dist/verify.js demo-pr-31.json trusted-public-key.pem trusted-approval-key.pem
 
 echo "== [4/4] L2 -- Diff im Paket gegen den echten Diff auf GitHub nachrechnen =="
 BASE=$(node -e "console.log(require('./demo-pr-31.json').controller_evidence.repository_state.base_commit)")
