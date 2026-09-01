@@ -8,7 +8,16 @@ Kosten-Teilerfassung, abgelehnte Aktionen, Freigabe-Objekt, deterministische les
 Zusammenfassung) plus ein zusaetzliches Pflichtfeld fuer jedes abgeschlossene Paket -- ein
 signiertes `ci_result`, der echte GitHub-Check-Run-Ausgang des Ergebnis-Commits, nicht nur der
 interne Kontroll-/Freigabepfad. Erstes oeffentliches Paket mit dieser Anforderung von Anfang an:
-`evidence/pr-31-deepseek.json`, `prove-pr-31.sh` fuehrt die Fremdverifikation End-zu-Ende vor.
+`evidence/pr-31-deepseek.json`, `prove-pr-31.sh` und `prove-pr-33.sh` fuehren die
+Fremdverifikation End-zu-Ende vor. PR #33 ist der aktuelle, offen gelassene Inhaltsbeweis:
+
+```bash
+curl -O https://raw.githubusercontent.com/bewusstki-hue/alex-mrtb-verify-bundle/main/prove-pr-33.sh
+bash prove-pr-33.sh
+```
+
+Das Skript prueft Signatur, Hash-Kette, Freigabe und den signierten Diff gegen den echten
+GitHub-Diff. Ob die Aenderung den Auftrag fachlich erfuellt, bleibt eine Review-Entscheidung.
 
 **Wichtig:** `evidence/pr-19-deepseek.json`, `pr-20-hermes.json` und `pr-21-cline.json` liefen VOR
 Einfuehrung der `ci_result`-Pflicht und liefern mit diesem Verifier jetzt erwartungsgemaess
