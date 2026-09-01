@@ -62,6 +62,32 @@ test("rejects a verified claim contradicted by its trace", () => {
   });
 });
 
+test("rejects a self-signed forgery that declares an unrecognized evidence-package schema version", () => {
+  // 01.09.2026: Regressionstest fuer einen echten Fund -- vor dem Fix lief jeder schema_version-
+  // Wert ausser exakt "evidence-package@2.0" komplett am Trust-Anchor-Pinning vorbei, die
+  // Signaturpruefung verifizierte dann nur noch gegen den im Bundle selbst mitgelieferten
+  // public_key. Eine Faelschung, die diese Luecke ausnutzen wollte, brauchte nie den echten
+  // privaten Schluessel -- nur einen abweichenden schema_version-String.
+  const { publicKey, privateKey } = generateKeyPairSync("ed25519");
+  const payload = {
+    schema_version: "evidence-package@9.9",
+    bundle_id: "forged_bundle",
+    capability: "devtask.execution@1.0",
+    run_id: "forged_run",
+    claim_ladder: "L2",
+    executed_at: "2026-09-01T00:00:00.000Z",
+    trace_events: [],
+    trace_hash_chain: hashChain([]),
+    outcome: "verified",
+  };
+  const forged = {
+    ...payload,
+    signature: sign(null, Buffer.from(JSON.stringify(payload)), privateKey).toString("base64"),
+    public_key: publicKey.export({ type: "spki", format: "pem" }),
+  };
+  assert.deepEqual(verifyBundleObject(forged), { ok: false, reason: "unsupported_schema_version" });
+});
+
 test("accepts independent validation only for the trusted runner and exact commit", () => {
   const { publicKey, privateKey } = generateKeyPairSync("ed25519");
   const pem = publicKey.export({ type: "spki", format: "pem" }).toString();

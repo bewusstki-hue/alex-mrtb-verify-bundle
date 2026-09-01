@@ -16,6 +16,16 @@ export interface ReviewerAttestationV1 {
   bundle_sha256: string; validation_attestation_sha256: string; reviewer_key_id: string; public_key: string; signature: string;
 }
 
+// 01.09.2026: siehe server/services/mrtb/evidenceBundle.server.ts im Alex-Souverrain-Repo fuer den
+// identischen Fix (kein Shared Import zwischen Server und diesem eigenstaendigen Verifier) -- ein
+// schema_version-Wert ausserhalb dieser Menge liess die Trust-Anchor-Pruefung komplett
+// uebersprungen werden, die Signaturpruefung darunter verifizierte dann nur noch gegen den im
+// Bundle selbst mitgelieferten public_key.
+const DEVTASK_V2_SCHEMA_VERSIONS = new Set(["evidence-package@2.0"]);
+function isDevTaskV2Schema(v: string | undefined): boolean {
+  return v !== undefined && DEVTASK_V2_SCHEMA_VERSIONS.has(v);
+}
+
 function canonical(value: unknown): string {
   if (Array.isArray(value)) return `[${value.map(canonical).join(",")}]`;
   if (value && typeof value === "object") return `{${Object.keys(value).sort().map(k => `${JSON.stringify(k)}:${canonical((value as Record<string, unknown>)[k])}`).join(",")}}`;
@@ -570,7 +580,11 @@ export function verifyBundleObject(bundle: EvidenceBundle, trustedPublicKey?: st
   // fuer die getrennte Pruefung der Zeitstempel-Bindung selbst).
   const { signature, public_key, rfc3161_timestamp, approval_attestation, ...payload } = bundle;
 
-  if (bundle.schema_version === "evidence-package@2.0") {
+  // Fail-closed: siehe Kommentar bei DEVTASK_V2_SCHEMA_VERSIONS oben.
+  if (bundle.schema_version?.startsWith("evidence-package@") && !isDevTaskV2Schema(bundle.schema_version)) {
+    return { ok: false, reason: "unsupported_schema_version" };
+  }
+  if (isDevTaskV2Schema(bundle.schema_version)) {
     if (!trustedPublicKey) return { ok: false, reason: "missing_trust_anchor" };
     if (public_key !== trustedPublicKey || bundle.signer_key_id !== evidenceSignerKeyId(trustedPublicKey)) {
       return { ok: false, reason: "untrusted_signer" };
@@ -604,7 +618,7 @@ export function verifyBundleObject(bundle: EvidenceBundle, trustedPublicKey?: st
     return { ok: false, reason: "hash_chain_mismatch" };
   }
 
-  if (bundle.schema_version === "evidence-package@2.0" && bundle.controller_evidence) {
+  if (isDevTaskV2Schema(bundle.schema_version) && bundle.controller_evidence) {
     const required = requiredDevTaskEvidenceV2(bundle.trace_events, bundle.controller_evidence);
     if (JSON.stringify(bundle.required_evidence ?? []) !== JSON.stringify(required)) {
       return { ok: false, reason: "required_evidence_mismatch" };
@@ -616,7 +630,7 @@ export function verifyBundleObject(bundle: EvidenceBundle, trustedPublicKey?: st
     }
   }
 
-  if (bundle.schema_version !== "evidence-package@2.0" && (
+  if (!isDevTaskV2Schema(bundle.schema_version) && (
     bundle.capability === PROVENANCE_CAPABILITY ||
     bundle.capability === DELETE_ENFORCED_CAPABILITY ||
     bundle.capability === TENANT_ISOLATION_CAPABILITY ||
