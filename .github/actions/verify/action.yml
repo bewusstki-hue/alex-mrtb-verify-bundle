@@ -1,0 +1,98 @@
+name: "ALEX Evidence Verify"
+description: >
+  Independently re-verifies a signed ALEX devtask.execution Evidence Bundle (extracted from a PR
+  comment) against the public trust anchor at https://bewusstki.de/.well-known/alex-pubkey.json.
+  Shells out to this repo's own verify.ts CLI -- no crypto/hash-chain logic duplicated here.
+author: "bewusstki-hue"
+
+inputs:
+  bundle-json:
+    description: "The full evidence bundle JSON (already extracted from the PR comment by the caller)."
+    required: true
+  ref:
+    description: "Which ref of this verifier repo to build and run -- pin to a tag in production."
+    required: false
+    default: "main"
+  trust-anchor-url:
+    description: "Well-known trust anchor document."
+    required: false
+    default: "https://bewusstki.de/.well-known/alex-pubkey.json"
+
+outputs:
+  outcome:
+    description: "verified | inconclusive | failed"
+    value: ${{ steps.run-verify.outputs.outcome }}
+  reason:
+    description: "Machine-readable failure/inconclusive reason from verify.ts, empty when verified."
+    value: ${{ steps.run-verify.outputs.reason }}
+  summary:
+    description: "Human-readable stdout/stderr tail from verify.ts."
+    value: ${{ steps.run-verify.outputs.summary }}
+
+runs:
+  using: "composite"
+  steps:
+    - name: Checkout verifier source (separate from the caller's own checkout)
+      uses: actions/checkout@v4
+      with:
+        repository: bewusstki-hue/alex-mrtb-verify-bundle
+        ref: ${{ inputs.ref }}
+        path: _alex-verifier
+
+    - uses: actions/setup-node@v4
+      with:
+        node-version: "20"
+
+    - name: Build verifier (dist/ is not committed, always built fresh)
+      shell: bash
+      working-directory: _alex-verifier
+      run: |
+        npm ci --silent
+        npm run build --silent
+
+    - name: Fetch trust anchor + write bundle to disk
+      shell: bash
+      working-directory: _alex-verifier
+      # Sicherheit: bundle-json enthaelt einen echten Diff aus fremdem Code (controller_evidence.
+      # diff_full) -- das darf NIEMALS per ${{ }}-Interpolation direkt in den Skripttext, das waere
+      # klassisches GitHub-Actions-Script-Injection (Backticks/$()/Anfuehrungszeichen im Diff wuerden
+      # als Shell-Code ausgefuehrt). Stattdessen als Env-Var uebergeben -- Bash ersetzt $BUNDLE_JSON
+      # als reinen String, parst den Inhalt nie als Code.
+      env:
+        BUNDLE_JSON: ${{ inputs.bundle-json }}
+      run: |
+        curl -fsS "${{ inputs.trust-anchor-url }}" -o pubkey.json
+        node -e "process.stdout.write(require('./pubkey.json').public_key_pem)" > trusted-public-key.pem
+        node -e "process.stdout.write(require('./pubkey.json').approval_signer.public_key_pem)" > trusted-approval-key.pem
+        printf '%s' "$BUNDLE_JSON" > bundle.json
+
+    - name: Run verify.js
+      id: run-verify
+      shell: bash
+      working-directory: _alex-verifier
+      run: |
+        set +e
+        OUTPUT=$(node dist/verify.js bundle.json trusted-public-key.pem trusted-approval-key.pem 2>&1)
+        CODE=$?
+        set -e
+        echo "$OUTPUT"
+        {
+          echo "summary<<ALEX_SUMMARY_EOF"
+          echo "$OUTPUT"
+          echo "ALEX_SUMMARY_EOF"
+        } >> "$GITHUB_OUTPUT"
+        if [ "$CODE" -eq 0 ]; then
+          echo "outcome=verified" >> "$GITHUB_OUTPUT"
+          echo "reason=" >> "$GITHUB_OUTPUT"
+        else
+          REASON=$(echo "$OUTPUT" | grep -oE '[a-z_]+:[a-z_]+|[a-z_]+_mismatch|[a-z_]+_signer|[a-z_]+_signature|missing_[a-z_]+|unsupported_[a-z_]+' | head -1)
+          echo "reason=${REASON:-unknown}" >> "$GITHUB_OUTPUT"
+          # non_verified_outcome:inconclusive / :ci_pending etc. means "not yet decidable"
+          # (task still running, CI still pending) -- everything else is a real verification
+          # problem (tampered bundle, untrusted signer, broken hash chain, ...).
+          if echo "$OUTPUT" | grep -q "non_verified_outcome:"; then
+            echo "outcome=inconclusive" >> "$GITHUB_OUTPUT"
+          else
+            echo "outcome=failed" >> "$GITHUB_OUTPUT"
+          fi
+        fi
