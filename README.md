@@ -1,7 +1,24 @@
 # Independent Evidence Bundle Verifier
 
+**Zuletzt bearbeitet:** 2026-09-01
+**Von:** MERIDIAN
+
+`evidence-package@2.1` unterstuetzt: additive `customer_evidence`-Felder (Auftrag im Klartext,
+Kosten-Teilerfassung, abgelehnte Aktionen, Freigabe-Objekt, deterministische lesbare
+Zusammenfassung) plus ein zusaetzliches Pflichtfeld fuer jedes abgeschlossene Paket -- ein
+signiertes `ci_result`, der echte GitHub-Check-Run-Ausgang des Ergebnis-Commits, nicht nur der
+interne Kontroll-/Freigabepfad. Erstes oeffentliches Paket mit dieser Anforderung von Anfang an:
+`evidence/pr-31-deepseek.json`, `prove-pr-31.sh` fuehrt die Fremdverifikation End-zu-Ende vor.
+
+**Wichtig:** `evidence/pr-19-deepseek.json`, `pr-20-hermes.json` und `pr-21-cline.json` liefen VOR
+Einfuehrung der `ci_result`-Pflicht und liefern mit diesem Verifier jetzt erwartungsgemaess
+`required_evidence_mismatch` statt `VERIFIED` -- kein Zeichen von Manipulation, sondern eine
+bewusste Verschaerfung der Anforderung selbst. Details: `evidence/README.md`.
+
+---
+
 **Zuletzt bearbeitet:** 2026-08-30
-**Von:** Codex (MERIDIAN)
+**Von:** MERIDIAN
 Originale Evidence Packages der Engine-PRs #19-#21 liegen unter `evidence/`. Neue Pakete binden
 Executor, Harness und Adapter-Version samt SHA-256 in den signierten Trace; historische V2-Pakete
 ohne diese additiven Felder bleiben verifizierbar.

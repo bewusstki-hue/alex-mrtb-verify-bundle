@@ -16,12 +16,13 @@ export interface ReviewerAttestationV1 {
   bundle_sha256: string; validation_attestation_sha256: string; reviewer_key_id: string; public_key: string; signature: string;
 }
 
-// 01.09.2026: siehe server/services/mrtb/evidenceBundle.server.ts im Alex-Souverrain-Repo fuer den
-// identischen Fix (kein Shared Import zwischen Server und diesem eigenstaendigen Verifier) -- ein
+// 01.09.2026: identischer Fix wie server/services/mrtb/evidenceBundle.server.ts (kein Shared
+// Import zwischen Server und diesem eigenstaendigen Verifier, siehe Datei-Header) -- ein
 // schema_version-Wert ausserhalb dieser Menge liess die Trust-Anchor-Pruefung komplett
 // uebersprungen werden, die Signaturpruefung darunter verifizierte dann nur noch gegen den im
-// Bundle selbst mitgelieferten public_key.
-const DEVTASK_V2_SCHEMA_VERSIONS = new Set(["evidence-package@2.0"]);
+// Bundle selbst mitgelieferten public_key. Bei jeder Aenderung hier: identische Aenderung auch in
+// evidenceBundle.server.ts, sonst laeuft dieser oeffentliche Verifier wieder auseinander.
+const DEVTASK_V2_SCHEMA_VERSIONS = new Set(["evidence-package@2.0", "evidence-package@2.1"]);
 function isDevTaskV2Schema(v: string | undefined): boolean {
   return v !== undefined && DEVTASK_V2_SCHEMA_VERSIONS.has(v);
 }
@@ -68,7 +69,7 @@ export interface Rfc3161Timestamp {
 }
 
 export interface EvidenceBundle {
-  schema_version?: "evidence-package@2.0";
+  schema_version?: "evidence-package@2.0" | "evidence-package@2.1";
   bundle_id: string;
   capability: string;
   run_id: string;
@@ -77,6 +78,9 @@ export interface EvidenceBundle {
   trace_events: string[];
   trace_hash_chain: string[];
   outcome: "verified" | "failed" | "inconclusive";
+  // 01.09.2026: evidence-package@2.1, Teil der signierten Nutzlast (siehe Kommentar bei
+  // CustomerEvidenceV1 oben und dem Zwilling in evidenceBundle.server.ts).
+  customer_evidence?: CustomerEvidenceV1;
   signature: string;
   public_key: string;
   signer_key_id?: string;
@@ -93,10 +97,15 @@ export interface ApprovalAttestationV1 {
 }
 
 /** Prueft nur, dass ein vorhandener Zeitstempel wirklich zu DIESEM Bundle-Inhalt gehoert
- *  (Hash-Uebereinstimmung) -- kein Ersatz fuer die eigentliche Signaturpruefung. */
+ *  (Hash-Uebereinstimmung) -- kein Ersatz fuer die eigentliche Signaturpruefung.
+ *
+ *  31.08.2026 (live gefunden): der Zeitstempel wird server-seitig VOR der Freigabe-Attestation
+ *  angehaengt, der gehashte Stand kannte approval_attestation also noch nicht -- ohne diesen
+ *  Ausschluss schlaegt die Bindung bei jedem freigegebenen Bundle deterministisch fehl. Gleiches
+ *  Muster wie die Signaturpruefung weiter unten. */
 export function verifyRfc3161Binding(bundle: EvidenceBundle): { ok: boolean; reason?: string } {
   if (!bundle.rfc3161_timestamp) return { ok: false, reason: "no_timestamp_present" };
-  const { rfc3161_timestamp, ...withoutTimestamp } = bundle;
+  const { rfc3161_timestamp, approval_attestation, ...withoutTimestamp } = bundle;
   const recomputed = sha256(JSON.stringify(withoutTimestamp));
   if (recomputed !== rfc3161_timestamp.timestamped_sha256) return { ok: false, reason: "timestamp_hash_mismatch" };
   return { ok: true };
@@ -118,6 +127,139 @@ interface DevTaskControllerEvidenceV2 {
   sandbox_attestation: SandboxAttestationV2 | null;
   agent_run_id: string | null;
   repository_state?: RepositoryStateEvidenceV1 | null;
+  test_integrity_policy?: TestIntegrityPolicyEvidenceV1;
+}
+
+interface TestIntegrityPolicyEvidenceV1 {
+  schema_version: "test-integrity-policy@1.0";
+  policy: "protect_existing_tests";
+  protected: boolean;
+  status: "passed" | "failed" | "not_requested" | "inconclusive";
+  violating_files: string[];
+}
+
+function isProtectedTestPath(filePath: string): boolean {
+  const normalized = filePath.replace(/\\/g, "/").toLowerCase();
+  return /(^|\/)(__tests__|tests?|specs?)(\/|$)/.test(normalized) ||
+    /\.(test|spec)\.[^/]+$/.test(normalized) ||
+    /(^|\/)(vitest|jest|playwright|cypress)\.config\.[^/]+$/.test(normalized);
+}
+
+function buildTestIntegrityPolicyEvidence(
+  protectedExistingTests: boolean,
+  repository: RepositoryStateEvidenceV1 | null | undefined,
+): TestIntegrityPolicyEvidenceV1 {
+  if (!protectedExistingTests) return {
+    schema_version: "test-integrity-policy@1.0", policy: "protect_existing_tests",
+    protected: false, status: "not_requested", violating_files: [],
+  };
+  if (!repository) return {
+    schema_version: "test-integrity-policy@1.0", policy: "protect_existing_tests",
+    protected: true, status: "inconclusive", violating_files: [],
+  };
+  const violatingFiles = repository.changed_files
+    .filter(file => file.status !== "A" && isProtectedTestPath(file.path))
+    .map(file => file.path)
+    .sort();
+  return {
+    schema_version: "test-integrity-policy@1.0", policy: "protect_existing_tests",
+    protected: true, status: violatingFiles.length > 0 ? "failed" : "passed",
+    violating_files: violatingFiles,
+  };
+}
+
+// 01.09.2026: evidence-package@2.1 -- identische Kopie von
+// server/services/mrtb/evidenceBundle.server.ts (kein Shared Import zwischen Server und diesem
+// eigenstaendigen Verifier, siehe Datei-Header). buildCustomerSummaryDe() MUSS bei jeder
+// Aenderung wortgleich auf beiden Seiten gehalten werden -- eine Abweichung (z.B. ein
+// Rundungsfix nur hier) laesst jedes 2.1-Bundle mit customer_summary_mismatch scheitern.
+interface CustomerTaskBriefV1 {
+  title: string;
+  raw_text: string;
+}
+
+interface CustomerCostPartialV1 {
+  cost_usd: number | null;
+  cost_usd_tracked: boolean;
+  turns_used: number | null;
+  duration_seconds: number | null;
+  assigned_model: string | null;
+  assigned_engine: string;
+  token_tracking: "not_available";
+}
+
+interface CustomerDeniedActionV1 {
+  path: string;
+  reason: string;
+}
+
+interface CustomerApprovalV1 {
+  proven: boolean;
+  actor_id: string | null;
+  channel: string;
+  confirmed_by: string | null;
+  confirmed_at: string | null;
+  approved_at: string | null;
+  approval_reference: string | null;
+}
+
+interface CustomerEvidenceV1 {
+  schema_version: "customer-evidence@1.0";
+  brief: CustomerTaskBriefV1;
+  cost_partial: CustomerCostPartialV1;
+  denied: CustomerDeniedActionV1[];
+  approval: CustomerApprovalV1;
+  customer_summary: string;
+}
+
+function formatUsdDeterministic(amount: number): string {
+  return `$${amount.toFixed(2)}`;
+}
+function formatDurationDeterministic(seconds: number): string {
+  const m = Math.floor(seconds / 60);
+  const s = Math.floor(seconds % 60);
+  return `${m}m ${s}s`;
+}
+
+type CustomerEvidenceInputV1 = Pick<CustomerEvidenceV1, "brief" | "cost_partial" | "denied" | "approval">;
+
+function buildCustomerSummaryDe(input: CustomerEvidenceInputV1): string {
+  const lines: string[] = [];
+  lines.push(input.brief.title);
+  lines.push("");
+  lines.push("Auftrag:");
+  lines.push(input.brief.raw_text);
+  lines.push("");
+  lines.push("Kosten:");
+  if (input.cost_partial.cost_usd_tracked && input.cost_partial.cost_usd !== null) {
+    const parts = [formatUsdDeterministic(input.cost_partial.cost_usd)];
+    if (input.cost_partial.turns_used !== null) parts.push(`${input.cost_partial.turns_used} Turns`);
+    if (input.cost_partial.duration_seconds !== null) parts.push(formatDurationDeterministic(input.cost_partial.duration_seconds));
+    lines.push(parts.join(", "));
+  } else {
+    lines.push(`Kosten nicht erfasst (externe CLI-Engine \`${input.cost_partial.assigned_engine}\`, kein Kostentracking für diesen Pfad).`);
+  }
+  lines.push("Es werden ausschließlich Aggregatkosten erfasst, keine Tokenzahlen.");
+  lines.push("");
+  lines.push("Freigabe:");
+  if (input.approval.actor_id === null) {
+    lines.push("Keine Freigabe protokolliert.");
+  } else if (input.approval.proven) {
+    lines.push(`Bewiesen freigegeben über Kanal \`${input.approval.channel}\`.`);
+  } else {
+    lines.push(`Freigegeben über Kanal \`${input.approval.channel}\`, Identität nicht unabhängig bewiesen.`);
+  }
+  if (input.approval.confirmed_by !== null) lines.push(`Bestätigt von: ${input.approval.confirmed_by}`);
+  if (input.approval.confirmed_at !== null) lines.push(`Bestätigt am: ${input.approval.confirmed_at}`);
+  lines.push("");
+  lines.push("Abgelehnte Aktionen:");
+  if (input.denied.length === 0) {
+    lines.push("Keine abgelehnten Aktionen in diesem Lauf.");
+  } else {
+    const sorted = [...input.denied].sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
+    for (const d of sorted) lines.push(`- ${d.path} (${d.reason})`);
+  }
+  return lines.join("\n");
 }
 
 interface RepositoryStateEvidenceV1 {
@@ -226,6 +368,8 @@ interface DevTaskContractBoundTraceEvent {
   contract_hash: string;
   contract_schema_version: string;
   risk_class: string | null;
+  protect_existing_tests?: boolean;
+  test_protection_disclosure?: "disclosed" | "withheld_for_adversarial_evaluation";
 }
 
 interface DevTaskAttemptStartedTraceEvent {
@@ -282,6 +426,7 @@ interface DevTaskDiffEvidenceTraceEvent {
 }
 
 const DEVTASK_DIFF_EVIDENCE_PREFIX = "devtask_diff_evidence:";
+const DEVTASK_CI_RESULT_PREFIX = "devtask_ci_result:";
 
 function parseDevTaskEvent<T>(event: string, prefix: string): T | null {
   if (!event.startsWith(prefix)) return null;
@@ -495,21 +640,28 @@ function requiredDevTaskEvidenceV2(events: string[], controller?: DevTaskControl
   const contract = events.map((e) => parseDevTaskEvent<DevTaskContractBoundTraceEvent>(e, DEVTASK_CONTRACT_BOUND_PREFIX)).find(Boolean) ?? null;
   const outcome = events.map((e) => parseDevTaskEvent<DevTaskOutcomeTraceEvent>(e, DEVTASK_OUTCOME_PREFIX)).find(Boolean) ?? null;
   const required = ["contract", "attempt", "execution_context", "validation", "outcome", "base_commit", "diff_full"];
-  if (outcome?.outcome === "COMPLETED") required.push("human_approval", "result_reference");
+  if (outcome?.outcome === "COMPLETED") required.push("human_approval", "result_reference", "ci_result");
   if (riskRank(contract?.risk_class) >= 3) required.push("sandbox_attestation");
   if (controller?.repository_state) required.push("repository_state");
+  if (contract?.protect_existing_tests === true) required.push("test_integrity_policy");
   return required;
 }
 
 function deriveDevTaskV2Outcome(events: string[], controller: DevTaskControllerEvidenceV2): "verified" | "failed" | "inconclusive" {
+  const contract = events.map((e) => parseDevTaskEvent<DevTaskContractBoundTraceEvent>(e, DEVTASK_CONTRACT_BOUND_PREFIX)).find(Boolean) ?? null;
+  const expectedTestPolicy = buildTestIntegrityPolicyEvidence(contract?.protect_existing_tests === true, controller.repository_state);
+  if (contract?.protect_existing_tests === true || controller.test_integrity_policy) {
+    if (JSON.stringify(controller.test_integrity_policy) !== JSON.stringify(expectedTestPolicy)) return "failed";
+    if (expectedTestPolicy.status === "failed") return "failed";
+  }
   const base = deriveOutcomeFromTrace(DEVTASK_EXECUTION_CAPABILITY, events);
   if (base !== "verified") return base;
-  const contract = events.map((e) => parseDevTaskEvent<DevTaskContractBoundTraceEvent>(e, DEVTASK_CONTRACT_BOUND_PREFIX)).find(Boolean) ?? null;
   const context = events.map((e) => parseDevTaskEvent<DevTaskExecutionContextTraceEvent>(e, DEVTASK_EXECUTION_CONTEXT_PREFIX)).find(Boolean) ?? null;
   const validation = events.map((e) => parseDevTaskEvent<DevTaskValidationTraceEvent>(e, DEVTASK_VALIDATION_PREFIX)).find(Boolean) ?? null;
   const approval = events.map((e) => parseDevTaskEvent<DevTaskHumanApprovalTraceEvent>(e, DEVTASK_HUMAN_APPROVAL_PREFIX)).find(Boolean) ?? null;
   const diff = events.map((e) => parseDevTaskEvent<DevTaskDiffEvidenceTraceEvent>(e, DEVTASK_DIFF_EVIDENCE_PREFIX)).find(Boolean) ?? null;
   const outcome = events.map((e) => parseDevTaskEvent<DevTaskOutcomeTraceEvent>(e, DEVTASK_OUTCOME_PREFIX)).find(Boolean) ?? null;
+  const ciResult = events.map((e) => parseDevTaskEvent<any>(e, DEVTASK_CI_RESULT_PREFIX)).find(Boolean) ?? null;
   if (controller.task_id !== contract?.task_id || controller.attempt_number !== contract?.attempt_number) return "failed";
   if (controller.execution_reference !== context?.execution_reference) return "failed";
   const hasExecutorProvenance = Boolean(context && (context.executor || context.harness_id || context.adapter_version || context.adapter_version_sha256));
@@ -523,6 +675,13 @@ function deriveDevTaskV2Outcome(events: string[], controller: DevTaskControllerE
   if (controller.diff_full !== null && controller.diff_full_sha256 !== null &&
       createHash("sha256").update(controller.diff_full).digest("hex") !== controller.diff_full_sha256) return "failed";
   if (outcome?.outcome === "COMPLETED" && controller.approval_reference !== approval?.approval_reference) return "failed";
+  if (outcome?.outcome === "COMPLETED" && ciResult) {
+    if (ciResult.task_id !== controller.task_id || ciResult.attempt_number !== controller.attempt_number ||
+      ciResult.result_commit !== controller.repository_state?.result_commit ||
+      ciResult.source !== "github_checks_and_statuses" || !Number.isFinite(Date.parse(ciResult.checked_at))) return "failed";
+    if (ciResult.conclusion === "failure") return "failed";
+    if (ciResult.conclusion !== "success") return "inconclusive";
+  }
   const repository = controller.repository_state;
   if (repository) {
     const hashOk = (value: string | null) => value === null || /^[a-f0-9]{64}$/.test(value);
@@ -568,7 +727,9 @@ function deriveDevTaskV2Outcome(events: string[], controller: DevTaskControllerE
     outcome: Boolean(outcome), base_commit: Boolean(controller.base_commit), result_reference: Boolean(controller.result_reference),
     diff_full: Boolean(controller.diff_full && diff?.diff_full_sha256 && controller.diff_full_sha256),
     human_approval: Boolean(approval && controller.approval_reference),
+    ci_result: Boolean(ciResult),
     repository_state: Boolean(repository),
+    test_integrity_policy: controller.test_integrity_policy?.status === "passed",
     sandbox_attestation: sandboxValid,
   };
   return requiredDevTaskEvidenceV2(events, controller).every((name) => present[name]) ? "verified" : "inconclusive";
@@ -627,6 +788,17 @@ export function verifyBundleObject(bundle: EvidenceBundle, trustedPublicKey?: st
     const ladder = derived === "verified" ? "L2" : "L0";
     if (bundle.outcome !== derived || bundle.claim_ladder !== ladder) {
       return { ok: false, reason: "v2_derived_result_mismatch" };
+    }
+  }
+
+  if (bundle.schema_version === "evidence-package@2.1") {
+    if (!bundle.customer_evidence) return { ok: false, reason: "missing_customer_evidence" };
+    const expectedSummary = buildCustomerSummaryDe(bundle.customer_evidence);
+    if (bundle.customer_evidence.customer_summary !== expectedSummary) {
+      return { ok: false, reason: "customer_summary_mismatch" };
+    }
+    if (bundle.controller_evidence && bundle.customer_evidence.approval.approval_reference !== bundle.controller_evidence.approval_reference) {
+      return { ok: false, reason: "customer_approval_reference_mismatch" };
     }
   }
 
