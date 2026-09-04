@@ -203,12 +203,11 @@ interface CustomerApprovalV1 {
   approval_reference: string | null;
 }
 
-// 03.09.2026 ("Safety Case"-Baustein, synced 04.09.2026): ehrliche Gegenstelle zu `denied` --
-// waehrend `denied` sagt "das wurde aktiv verhindert", sagt `open_risks` "das wurde gar nicht
-// erst geprueft". Optional, da aeltere, bereits signierte 2.1-Bundles das Feld nicht haben.
 interface CustomerOpenRiskV1 {
   code: string;
   description: string;
+  // Nicht Teil von buildCustomerSummaryDe()/customer_summary -- reine strukturierte Zusatzinfo,
+  // hier nur fuer Typ-Konsistenz mit evidenceBundle.server.ts mitgefuehrt.
   recommended_action: string;
 }
 
@@ -848,16 +847,97 @@ export function verifyBundleObject(bundle: EvidenceBundle, trustedPublicKey?: st
   return { ok: true };
 }
 
-function main() {
+// 04.09.2026 (Bauanleitung 1.2): zweiter, unabhaengiger Veroeffentlichungskanal fuer den
+// Trust-Anchor neben bewusstki.de -- derselbe JSON-Inhalt, manuell nach jeder Rotation in DIESES
+// Repo gespiegelt (siehe scripts/publish-trust-anchor.mjs im Hauptrepo). Beide Hosts (Hetzner/Caddy
+// vs. GitHub) sind unabhaengige Infrastruktur; ein Kompromiss des einen kompromittiert den anderen
+// nicht automatisch.
+const DEFAULT_TRUST_ANCHOR_CHANNELS = [
+  "https://bewusstki.de/.well-known/alex-pubkey.json",
+  "https://raw.githubusercontent.com/Alex-Proof/alex-mrtb-verify-bundle/main/trust-anchor.json",
+];
+
+export interface TrustAnchorChannelResult { url: string; key_id: string | null; public_key_pem: string | null; error?: string }
+export interface TrustAnchorConsensus {
+  purpose: "evidence_package" | "human_approval";
+  channels: TrustAnchorChannelResult[];
+  agreed_key_id: string | null;
+  agreed_public_key_pem: string | null;
+  agreement_count: number;
+  total_channels: number;
+  divergent: boolean;
+}
+
+/** Fragt alle bekannten Kanaele unabhaengig ab und meldet explizit, wie viele denselben Key-Id
+ * bestaetigen -- statt still auf einen einzelnen Kanal (bewusstki.de) zu vertrauen. Ein
+ * abweichender oder nicht erreichbarer Kanal blockiert die Pruefung NICHT (die Signaturpruefung
+ * selbst bleibt die harte Schranke), wird aber unuebersehbar als `divergent`/Fehler gemeldet.
+ * WICHTIG: liefert den PEM-Inhalt DIREKT aus den Kanaelen, niemals aus dem zu pruefenden Bundle
+ * selbst -- sonst waere der Konsens-Vergleich zirkulaer (ein gefaelschtes Bundle koennte sich
+ * sonst einfach selbst als vertrauenswuerdig bestaetigen). */
+export async function crossCheckTrustAnchor(
+  purpose: "evidence_package" | "human_approval",
+  channels: string[] = DEFAULT_TRUST_ANCHOR_CHANNELS,
+): Promise<TrustAnchorConsensus> {
+  const results: TrustAnchorChannelResult[] = [];
+  for (const url of channels) {
+    try {
+      const res = await fetch(url);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = (await res.json()) as any;
+      const keyId: string | null = purpose === "evidence_package" ? (data.key_id ?? null) : (data.approval_signer?.key_id ?? null);
+      const pem: string | null = purpose === "evidence_package" ? (data.public_key_pem ?? null) : (data.approval_signer?.public_key_pem ?? null);
+      results.push({ url, key_id: keyId, public_key_pem: pem });
+    } catch (error) {
+      results.push({ url, key_id: null, public_key_pem: null, error: error instanceof Error ? error.message : String(error) });
+    }
+  }
+  const countsByKeyId = new Map<string, number>();
+  for (const r of results) if (r.key_id) countsByKeyId.set(r.key_id, (countsByKeyId.get(r.key_id) ?? 0) + 1);
+  let agreedKeyId: string | null = null;
+  let agreementCount = 0;
+  for (const [keyId, count] of countsByKeyId) if (count > agreementCount) { agreedKeyId = keyId; agreementCount = count; }
+  const distinctKeyIds = new Set(results.filter((r) => r.key_id).map((r) => r.key_id));
+  const agreedPem = agreedKeyId ? (results.find((r) => r.key_id === agreedKeyId)?.public_key_pem ?? null) : null;
+  return {
+    purpose, channels: results, agreed_key_id: agreedKeyId, agreed_public_key_pem: agreedPem,
+    agreement_count: agreementCount, total_channels: channels.length, divergent: distinctKeyIds.size > 1,
+  };
+}
+
+function printConsensus(label: string, consensus: TrustAnchorConsensus): void {
+  console.log(`   Trust-Anchor (${label}): ${consensus.agreement_count}/${consensus.total_channels} Kanaele bestaetigen ${consensus.agreed_key_id ?? "keinen gemeinsamen Key"}`);
+  for (const c of consensus.channels) {
+    console.log(`     - ${c.url}: ${c.error ? `Fehler (${c.error})` : c.key_id}`);
+  }
+  if (consensus.divergent) {
+    console.warn(`   ⚠ Kanaele weichen voneinander ab -- moeglicher Trust-Anchor-Kompromiss oder veraltete Kopie. Nicht stillschweigend ignorieren.`);
+  }
+}
+
+async function main() {
   const bundlePath = process.argv[2];
   if (!bundlePath) {
-    console.error("Usage: verify <bundle.json> <controller-key.pem> [approval-key.pem] [validation.json evidence-key.pem review.json reviewer-key.pem]");
+    console.error("Usage: verify <bundle.json> [controller-key.pem] [approval-key.pem] [validation.json evidence-key.pem review.json reviewer-key.pem]");
+    console.error("  Ohne controller-key.pem: der Trust-Anchor wird automatisch gegen mehrere unabhaengige Kanaele geprueft.");
     process.exit(1);
   }
 
   const bundle = JSON.parse(readFileSync(bundlePath, "utf-8")) as EvidenceBundle;
-  const trustedPublicKey = process.argv[3] ? readFileSync(process.argv[3], "utf-8") : undefined;
-  const trustedApprovalPublicKey = process.argv[4] ? readFileSync(process.argv[4], "utf-8") : undefined;
+  let trustedPublicKey = process.argv[3] ? readFileSync(process.argv[3], "utf-8") : undefined;
+  let trustedApprovalPublicKey = process.argv[4] ? readFileSync(process.argv[4], "utf-8") : undefined;
+
+  if (!trustedPublicKey && isDevTaskV2Schema(bundle.schema_version)) {
+    const consensus = await crossCheckTrustAnchor("evidence_package");
+    printConsensus("evidence_package", consensus);
+    if (consensus.agreed_public_key_pem) trustedPublicKey = consensus.agreed_public_key_pem;
+  }
+  if (!trustedApprovalPublicKey && bundle.approval_attestation_required && bundle.approval_attestation) {
+    const consensus = await crossCheckTrustAnchor("human_approval");
+    printConsensus("human_approval", consensus);
+    if (consensus.agreed_public_key_pem) trustedApprovalPublicKey = consensus.agreed_public_key_pem;
+  }
+
   const result = verifyBundleObject(bundle, trustedPublicKey, trustedApprovalPublicKey);
   if (!result.ok) {
     console.error(`❌ Bundle verification failed: ${result.reason}`);
@@ -908,5 +988,5 @@ function main() {
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
-  main();
+  main().catch((error) => { console.error(error); process.exit(1); });
 }
