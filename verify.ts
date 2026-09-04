@@ -920,7 +920,8 @@ async function main() {
   if (!bundlePath) {
     console.error("Usage: verify <bundle.json> [controller-key.pem] [approval-key.pem] [validation.json evidence-key.pem review.json reviewer-key.pem]");
     console.error("  Ohne controller-key.pem: der Trust-Anchor wird automatisch gegen mehrere unabhaengige Kanaele geprueft.");
-    process.exit(1);
+    process.exitCode = 1;
+    return;
   }
 
   const bundle = JSON.parse(readFileSync(bundlePath, "utf-8")) as EvidenceBundle;
@@ -941,7 +942,8 @@ async function main() {
   const result = verifyBundleObject(bundle, trustedPublicKey, trustedApprovalPublicKey);
   if (!result.ok) {
     console.error(`❌ Bundle verification failed: ${result.reason}`);
-    process.exit(2);
+    process.exitCode = 2;
+    return;
   }
 
   if (process.argv[5]) {
@@ -950,12 +952,12 @@ async function main() {
     const evidenceKey = process.argv[6] ? readFileSync(process.argv[6], "utf8") : "";
     const expectedCommit = bundle.controller_evidence?.repository_state?.result_commit ?? "";
     const validationResult = verifyValidationAttestation(validation, evidenceKey, expectedCommit);
-    if (!validationResult.ok) { console.error(`Validation verification failed: ${validationResult.reason}`); process.exit(3); }
+    if (!validationResult.ok) { console.error(`Validation verification failed: ${validationResult.reason}`); process.exitCode = 3; return; }
     if (process.argv[7]) {
       const bundleBytes = readFileSync(bundlePath); const review = JSON.parse(readFileSync(process.argv[7], "utf8")) as ReviewerAttestationV1;
       const reviewerKey = process.argv[8] ? readFileSync(process.argv[8], "utf8") : "";
       const reviewResult = verifyReviewerAttestation(review, reviewerKey, bundleBytes, validationBytes);
-      if (!reviewResult.ok) { console.error(`Reviewer verification failed: ${reviewResult.reason}`); process.exit(4); }
+      if (!reviewResult.ok) { console.error(`Reviewer verification failed: ${reviewResult.reason}`); process.exitCode = 4; return; }
       console.log("   independent validation + reviewer signature verified (Claim-Ladder=L3)");
     } else {
       console.log("   independent validation verified; reviewer signature missing (Claim-Ladder remains L2)");
