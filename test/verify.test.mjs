@@ -119,7 +119,7 @@ function testSummary({ brief, cost_partial, denied, approval }) {
   return lines.join("\n");
 }
 
-function devTaskV21Bundle({ tamperSummary = false, omitCustomerEvidence = false, mismatchApprovalRef = false } = {}) {
+function devTaskV21Bundle({ tamperSummary = false, omitCustomerEvidence = false, mismatchApprovalRef = false, openRisks = undefined, frozenCustomerSummary = undefined } = {}) {
   const { publicKey, privateKey } = generateKeyPairSync("ed25519");
   const pem = publicKey.export({ type: "spki", format: "pem" }).toString();
   const controllerEvidence = {
@@ -137,7 +137,8 @@ function devTaskV21Bundle({ tamperSummary = false, omitCustomerEvidence = false,
   };
   const customer_evidence = omitCustomerEvidence ? undefined : {
     schema_version: "customer-evidence@1.0", brief, cost_partial, denied, approval,
-    customer_summary: tamperSummary ? "manipuliert" : testSummary({ brief, cost_partial, denied, approval }),
+    ...(openRisks !== undefined ? { open_risks: openRisks } : {}),
+    customer_summary: tamperSummary ? "manipuliert" : frozenCustomerSummary ?? testSummary({ brief, cost_partial, denied, approval }),
   };
   const payload = {
     schema_version: "evidence-package@2.1",
@@ -183,6 +184,31 @@ test("evidence-package@2.1: rejects a customer_evidence.approval.approval_refere
   const bundle = devTaskV21Bundle({ mismatchApprovalRef: true });
   const { _trustedPublicKey, ...clean } = bundle;
   assert.equal(verifyBundleObject(clean, _trustedPublicKey).reason, "customer_approval_reference_mismatch");
+});
+
+// 04.09.2026: Golden-Fixture-Regressionstest fuer genau die Drift-Klasse, die diese Datei schon
+// mehrfach getroffen hat (RFC-3161, ci_result, approval_attestation, jetzt open_risks) -- die
+// Server-Seite (evidenceBundle.server.ts) bekam ein neues customer_evidence-Feld, dieser
+// unabhaengige Verifier zog erst spaeter nach. Bewusst KEIN Aufruf von testSummary() oben (die
+// kennt open_risks nicht und wuerde denselben blinden Fleck nur erneut verdecken) -- der erwartete
+// Text ist hier woertlich eingefroren, exakt wie ein echtes signiertes Bundle ihn enthaelt.
+test("evidence-package@2.1: accepts a customer_summary that includes the open_risks section", () => {
+  const bundle = devTaskV21Bundle({
+    openRisks: [
+      { code: "domain_correctness_not_verified", description: "Ob die Aenderung fachlich das Richtige tut, wurde nicht automatisiert geprueft.", recommended_action: "Review." },
+      { code: "coverage_not_measured", description: "Testabdeckung wird nicht automatisch gemessen.", recommended_action: "Coverage-Tool einsetzen." },
+    ],
+    frozenCustomerSummary:
+      "Testauftrag\n\nAuftrag:\nBitte README ergänzen.\n\nKosten:\n$1.23, 3 Turns, 1m 30s\n" +
+      "Es werden ausschließlich Aggregatkosten erfasst, keine Tokenzahlen.\n\nFreigabe:\n" +
+      "Bewiesen freigegeben über Kanal `pilot`.\nBestätigt von: andre\nBestätigt am: 2026-09-01T00:00:00.000Z\n\n" +
+      "Abgelehnte Aktionen:\nKeine abgelehnten Aktionen in diesem Lauf.\n\nOffene Risiken:\n" +
+      // sortiert nach code, nicht nach Einfuegereihenfolge: coverage_* vor domain_*
+      "- Testabdeckung wird nicht automatisch gemessen.\n- Ob die Aenderung fachlich das Richtige tut, wurde nicht automatisiert geprueft.",
+  });
+  const { _trustedPublicKey, ...clean } = bundle;
+  const result = verifyBundleObject(clean, _trustedPublicKey);
+  assert.deepEqual(result, { ok: false, reason: "non_verified_outcome:inconclusive" });
 });
 
 test("accepts independent validation only for the trusted runner and exact commit", () => {
