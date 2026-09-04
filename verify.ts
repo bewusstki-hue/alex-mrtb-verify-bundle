@@ -203,12 +203,22 @@ interface CustomerApprovalV1 {
   approval_reference: string | null;
 }
 
+// 03.09.2026 ("Safety Case"-Baustein, synced 04.09.2026): ehrliche Gegenstelle zu `denied` --
+// waehrend `denied` sagt "das wurde aktiv verhindert", sagt `open_risks` "das wurde gar nicht
+// erst geprueft". Optional, da aeltere, bereits signierte 2.1-Bundles das Feld nicht haben.
+interface CustomerOpenRiskV1 {
+  code: string;
+  description: string;
+  recommended_action: string;
+}
+
 interface CustomerEvidenceV1 {
   schema_version: "customer-evidence@1.0";
   brief: CustomerTaskBriefV1;
   cost_partial: CustomerCostPartialV1;
   denied: CustomerDeniedActionV1[];
   approval: CustomerApprovalV1;
+  open_risks?: CustomerOpenRiskV1[];
   customer_summary: string;
 }
 
@@ -221,7 +231,7 @@ function formatDurationDeterministic(seconds: number): string {
   return `${m}m ${s}s`;
 }
 
-type CustomerEvidenceInputV1 = Pick<CustomerEvidenceV1, "brief" | "cost_partial" | "denied" | "approval">;
+type CustomerEvidenceInputV1 = Pick<CustomerEvidenceV1, "brief" | "cost_partial" | "denied" | "approval" | "open_risks">;
 
 function buildCustomerSummaryDe(input: CustomerEvidenceInputV1): string {
   const lines: string[] = [];
@@ -258,6 +268,17 @@ function buildCustomerSummaryDe(input: CustomerEvidenceInputV1): string {
   } else {
     const sorted = [...input.denied].sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
     for (const d of sorted) lines.push(`- ${d.path} (${d.reason})`);
+  }
+  const openRisks = input.open_risks ?? [];
+  if (openRisks.length > 0 || input.open_risks !== undefined) {
+    lines.push("");
+    lines.push("Offene Risiken:");
+    if (openRisks.length === 0) {
+      lines.push("Keine bekannten offenen Risiken erfasst.");
+    } else {
+      const sortedRisks = [...openRisks].sort((a, b) => (a.code < b.code ? -1 : a.code > b.code ? 1 : 0));
+      for (const r of sortedRisks) lines.push(`- ${r.description}`);
+    }
   }
   return lines.join("\n");
 }
